@@ -1,19 +1,21 @@
 /**
  * dsh-login settings-panel client half — plain browser JavaScript.
  *
- * This file is NOT transformed: scripts/build-client.mjs appends it verbatim
- * to dist/client.js as a second module registration. The factory wraps the
- * re-stamped connection client (registered by the same bundle under the
- * internal id "@islibaodong/dsh-login/connection") and returns one Cordis
- * plugin that applies the shipped wire client verbatim (provides the
- * `connection` service) and registers the dsh-login settings section:
- * 用户管理 for admins (user table + create/reset/disable/remove + logout)
- * or 账户 for ordinary users (identity + logout).
+ * This file is NOT transformed: scripts/build-client.mjs wraps it verbatim
+ * into dist/client.js as the plugin's dsh.client registration (a module-loader
+ * factory closure). Under option A (DSH ≥ 0.1.5-alpha.1) the plugin does NOT
+ * provide the `connection` service — the shipped `connection` row owns /api —
+ * so this half is a standalone settings-section contribution over the native
+ * `slots` + `locale`: it registers 用户管理 for admins (user table +
+ * create/reset/disable/remove + logout) or 账户 for ordinary users (identity +
+ * logout).
  *
  * All styling runs through the framework's `--dsw-alias-*` theme tokens, so
  * the panel follows the app skin (light/dark) automatically. React and the
  * UI primitives come from the platform module-table seeds every bundle may
- * require; no cross-plugin value imports.
+ * require; no cross-plugin value imports and no hard inject that could
+ * deadlock (this fiber depends only on `slots`/`locale`, resolved by
+ * ctx.inject when they exist).
  */
 function (require) {
   var React = require('react')
@@ -26,9 +28,6 @@ function (require) {
   var Input = primitives.Input
   var Modal = primitives.Modal
   var RiskConfirmation = primitives.RiskConfirmation
-  // Same-bundle internal registration (see build-client.mjs): materializes
-  // the shipped connection client this wrapper applies verbatim.
-  var inner = require('@islibaodong/dsh-login/connection')
 
   // ---- styles (settings-panel design language: 14/22 body, 12/18 caption,
   // 12px-radius outlined cards, --dsw-alias-border-l2 hairlines) ----
@@ -653,23 +652,17 @@ function (require) {
   }
 
   // ---- the wrapper plugin ----
-  // Wire-root discipline: this fiber is the ONLY provider of `connection`
-  // (the shipped connection row is disabled while this takeover is active),
-  // so it must not declare ANY hard service dependency — `locale` itself
-  // waits on `connection`, and a hard inject here deadlocks the whole boot
-  // (every UI plugin transitively waits on connection). The settings-panel
-  // registration therefore runs in a dependency fiber (ctx.inject callback)
-  // once slots+locale exist, never blocking this plugin's activation.
+  // Option A (DSH ≥ 0.1.5-alpha.1): this fiber does NOT provide `connection`
+  // (the native connection row owns /api), so it declares no hard dependency —
+  // the settings section is registered in a dependency fiber once `slots` +
+  // `locale` exist, so this plugin's activation never stalls on services that
+  // transitively wait on connection.
   return {
     name: 'dsh-login',
     inject: [],
     apply: function (ctx) {
-      // 1. The shipped wire client, applied verbatim — synchronously, so
-      //    `connection` exists the moment this fiber activates.
-      inner.apply(ctx)
-
-      // 2. Dictionaries + the settings section, registered in a dependency
-      //    fiber that starts once slots and locale are available.
+      // Dictionaries + the settings section, registered in a dependency
+      // fiber that starts once slots and locale are available.
       ctx.inject(['slots', 'locale'], function (sub) {
         sub.effect(function () {
           return sub.locale.register(NS, { zh: zh, en: en })

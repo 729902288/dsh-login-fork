@@ -8,13 +8,14 @@
 |:---:|:---:|
 | ![登录页](images/login.png) | ![用户管理](images/users.png) |
 
-> **⚠️ 本仓库开发已暂停。** 详见[当前状态 →](#当前状态--开发暂停)。
+> **⚠️ 本仓库开发已暂停；与 DSH ≥ 0.1.5-alpha.1 的适配（option A）进行中。** 上游重构了 `/api` 传输。宿主源码已移植到 0.1.5 上可加载，`connection` 行重新启用；**按用户的会话/工作区隔离尚未在新 Remote 层最终落地、需 boot 验证**。详见[当前状态 →](#当前状态--开发暂停)与 [`docs/adapt-dsh-0.1.5.md`](docs/adapt-dsh-0.1.5.md)。
 
 ---
 
 ## 当前状态 —— 开发暂停
 
-**本仓库的开发已暂停。** 已经交付的：登录墙、多账号用户管理、按用户隔离会话/工作区、remote-web-ui 兼容、能力发现、写过读静默拒绝 —— 均已完成并正常运行。唯一**无法完成**的是「**对第三方 UI 插件的功能按角色控制**」（隐藏无权项、不渲染、不让其发请求），而这是**被上游 DSH 能力阻塞**，不是本插件单靠自己能解决的。
+**本仓库的开发已暂停，DSH ≥ 0.1.5-alpha.1 的再适配（option A）进行中。** 上游 `dsh-v0.1.5-alpha.1`（2026-09-08）移除了本插件 `/api` 接管所依赖的 WebSocket 下联事件载体与 `dsh-host-apiproxy` 包。再适配**不再接管 `/api`**，而是改在原生 `connection` + `api-gateway` 之上组成按用户层。宿主源码已移植并通过运行时验证（在构建好的 0.1.5 harness 上 `verify-imports` exit 0、`vitest` 17 文件/189 用例全绿、`npm run build` 产出 `dist/index.js`+`dist/client.js`）；隔离守卫 `src/remote-guard.ts` 已实现并单测。**尚未完成（需真实 `dsh web` boot 验证）**：把守卫组合进原生 `typertGateway` 并按用户隔离做两浏览器行为验收。唯一的原始目标「**对第三方 UI 插件的功能按角色控制**」仍无法完成——这是**被上游 DSH 能力阻塞**（0.1.5 依旧没有按身份过滤 slot/section 或按角色的插件激活门）。
+任务清单与验收矩阵见 [`docs/verify-option-A.md`](docs/verify-option-A.md)。
 
 **已完成并可用的**
 - 登录墙 + 多账号用户管理（设置 → 用户管理）+ 按用户隔离会话/工作区。
@@ -79,8 +80,8 @@ dsh plugin --profile web remove @islibaodong/dsh-login
 `dsh plugin add` 读取本包声明的 `cordis.patch.yml`（bundle patch），自动完成：
 
 - 挂载 `dsh-login` 插件行（配置默认值即可用；`distIndex` 自动解析前端 dist 目录）
-- 禁用 `web-runtime` 行（dsh-web-app 通过它挂载 frontend-static fallback）；dsh-login 接管 fallback 席位并重新提供 `webRuntime` 服务（`/api` 信任围栏的 LAN 信任 + `DSH_WEB_URL` 环境变量）
-- 禁用自带的 `connection` 行（`/api` 通道）；dsh-login 挂载自己的身份感知接管插件，并提供配套的浏览器 bundle `dist/client.js`
+- 禁用 `web-runtime` 行（dsh-web-app 通过它挂载 frontend-static fallback）；dsh-login 接替 fallback 席位作为登录墙并重新提供 `webRuntime` 服务（`/api` 信任围栏的 LAN 信任 + `DSH_WEB_URL` 环境变量）
+- **保留**自带的 `connection` 行（option A，DSH ≥ 0.1.5-alpha.1：`/api` 通道归上游 `dsh-client-connection` + `api-remotes`/`api-gateway` 持有）；dsh-login 提供自己的浏览器 `dsh.client` 贡献（设置面板 `dist/client.js`），并按其凭据 cookie 在 login 墙后调度
 
 ### 手动安装（可选）
 
@@ -100,15 +101,14 @@ dsh plugin --profile web remove @islibaodong/dsh-login
         defaultWorkspace: true        # 为每个普通用户首次 /api 访问自动供给默认工作区（默认开，可在设置-用户管理实时开关）
         workspaceRoot: ''             # 默认工作区沙箱根，留空解析为 <DSH_HOME>/workspaces
 
-# 重要：dsh-login 接管 fallback 席位，必须禁用 web-runtime 行
+# 重要：dsh-login 接替 fallback 席位作为登录墙，必须禁用 web-runtime 行
 # （dsh-web-app 通过该行挂载 frontend-static；dsh-login 会重新提供 webRuntime 服务）
 - id: web-runtime
   disabled: true
 
-# 重要：WebServer 拒绝重复的 /api 前缀注册，自带的 connection 行必须保持禁用；
-# dsh-login 自己挂载身份感知的 /api 接管插件（含浏览器 bundle dist/client.js）
-- id: connection
-  disabled: true
+# option A（DSH ≥ 0.1.5-alpha.1）：**不要**禁用自带的 connection 行——`/api`
+# 通道归上游 connection + api-gateway/remotes 持有，dsh-login 在其上做登录墙与
+# 按用户层（设置面板由本包自带的 dsh.client 贡献 dist/client.js 提供）。
 ```
 
 > 注意：新增行必须写在 `- insert:` 下——顶层直接写行会被当成对已存在行的覆盖，对不存在的行是静默空操作；禁用行的键是 `disabled`（不是 `disable`）。
@@ -134,16 +134,11 @@ dsh plugin --profile web remove @islibaodong/dsh-login
   ├─ /logout (精确)           -> GET: 同样撤销，重定向到 /login
   ├─ /api/auth/me (精确)      -> GET: 当前会话身份
   ├─ /api/auth/admin/* (精确) -> 管理员 JSON API（users、password、disable、remove）
-  ├─ /api/* (前缀匹配)        -> dsh-login 通道接管：
-  │                             ├─ 主机不可信 -> 403
-  │                             ├─ 无有效 Cookie -> 401
-  │                             ├─ 事件路径上的 GET -> 426（需要升级）
-  │                             └─ 按用户经代理过滤后分发
-  ├─ /api/events.mux + /api/events.host（WS 升级）-> 同样的信任 + Cookie 检查，
-  │                             之后按用户过滤事件下联
+  ├─ /api/...                 -> 原生 connection + api-remotes/api-gateway（option A）：
+  │                            浏览器会话认证、typert REMOTE 分发、WS 流
   └─ fallback (兜底)          -> dsh-login: 认证网关 + 静态文件服务
                                   ├─ 无有效 Cookie -> 302 重定向到 /login
-                                  └─ 有有效 Cookie -> serveStatic() 提供文件
+                                  └─ 有有效 Cookie -> serveStatic + connection.authorizeIndex
 ```
 
 - **Cookie 名称**：`dsh_session`，HttpOnly、SameSite=Strict、Path=/
@@ -152,7 +147,7 @@ dsh plugin --profile web remove @islibaodong/dsh-login
 
 ## 多用户权限模型
 
-- **普通用户只能使用会话功能。** 通过 `/api` 接管，他们只能看到和操作**自己**的会话及其派生子会话（子代理/分叉——所有权沿 `parentSessionId` 传递），工作区视图也被过滤为仅含自己的会话。其余一律禁止：
+- **普通用户只能使用会话功能。** 在 option A 下 `/api` 由原生 `connection`/`api-gateway` 持有并按 agent 键控；按用户隔离由 dsh-login 的 REMOTE 层守卫（`wrapRemoteGateway`，从本包导出）在组合进 `typertGateway` 后提供——把普通用户限制为只能看到和操作**自己**的会话及其派生子会话（子代理/分叉——所有权沿 `parentSessionId` 传递），工作区视图也被过滤为仅含自己的会话。其余一律禁止：
   - 物理层允许清单：固定的一组 `session.*`、`subagent.*`、`workspace.*`、`goal.*` 方法，加上 `skill.list`、`host.describe`、`llm.providers`/`llm.models` 和 `respond`；其他任何线上方法在到达 harness 之前就是 403
   - 管理员专属域：`credentials.*`、`settings.*`、`agentPresets.*` 整体禁用
   - 同样禁止：`llm.discoverModels` 以及特权 `host.*` 目录对话框（`pickDirectory`、`listDirectory`、`createDirectory`、`openPath`）
@@ -176,19 +171,17 @@ dsh plugin --profile web remove @islibaodong/dsh-login
 | 远程访问兼容开关 | `<DSH_HOME>/.dsh-login/settings-remote-web-ui.json`（可用 `dataDir` 配置） |
 | 登录会话 | `<DSH_HOME>/.dsh-login/sessions.json`（0o600；跨重启存续，TTL 过期的自动剔除） |
 
-## `/api` 通道接管与客户端 bundle
+## `/api` 集成（option A，DSH ≥ 0.1.5-alpha.1）
 
-本插件替换自带的 `/api` connection 行：`cordis.patch.yml` 将其禁用（WebServer 拒绝重复的 `/api` 前缀注册，因此自带行必须保持关闭），`dsh-login` 以子插件形式挂载自己的身份感知通道（`src/connection.ts`）——同样的主机信任围栏，但每个请求都从会话 Cookie 解析身份并按用户分发。
+DSH ≥ 0.1.5-alpha.1 下 dsh-login **不再接管 `/api` 通道**：`cordis.patch.yml` 让自带的 `connection` 行保持启用，`dsh-client-connection` + `api-remotes`/`api-gateway` 持有 `/api` 传输与实时 Remote 流。dsh-login 在这些原生栈之上组成自己的按用户层（详见 [`docs/adapt-dsh-0.1.5.md`](docs/adapt-dsh-0.1.5.md) 与验收清单 [`docs/verify-option-A.md`](docs/verify-option-A.md)）：登录墙占据 fallback 席位并通过原生 `serveStatic` 提供静态服务，同时在对 index 响应时调用 `connection.authorizeIndex`，让浏览器拿到上游 `/api` cookie。旧的 `src/connection.ts` 通道接管及其基于 `dsh-host-apiproxy` 的按用户 `ApiProxy` 已被移除；它提供的按用户会话/工作区隔离已改为 **REMOTE 层的守卫**（`wrapRemoteGateway` + `createRemoteIsolation`，从宿主 bundle 导出、已通过单元/集成测试），由部署在启动时组合进原生 `typertGateway`。**组合 + 两浏览器行为验收仍是需要真实 boot 才能完成的一步**（详见 `docs/verify-option-A.md` §B）。
 
 **主机信任按请求实时求值。** 围栏不再用静态列表，而是一组去重后的「有效集」——web runtime 的 LAN 字面量 + `trustedHosts` + 持久化白名单（`src/hosts.ts`）。每次成功登录/setup 都会自动学习请求 Host（受 `autoTrustHosts` 控制，默认开启），因此经 frp/隧道访问的公网主机**登录一次即被信任**；已学习的主机立即生效、删除后无需重启即失效。
 
-浏览器端的协议不变，但 GUI 的线上客户端必须继续由本包提供：client-modules 扫描器会把被禁用行的浏览器半边从启动图中剔除。因此 dsh-login 声明了自身的 `dsh.client` 并随包发布 bundle `dist/client.js`——它是自带 connection 客户端的重新打标副本（`src/connection.client.ts` 原样转发导出），**外加第二个模块注册**：设置面板包装器（`src/settings-panel.client.js`），它原样应用线上客户端并注册「设置 → 用户管理/账户」设置分区（样式走框架 `--dsw-alias-*` 主题令牌；样式表按框架 bundle 预置的形状预打 `data-plugin`/`data-plugin-css` 标签）。`dsh.client.inject` 字段遵循生态惯例——填浏览器半边所需服务背后的**包 id**（`@deepseek-ai/dsh-client-ui-settings`、`@deepseek-ai/dsh-client-locale`），而非服务名；运行时纤维自身导出的 `inject` 才是权威依赖。React 与 UI 原语经平台模块表种子解析，任何 bundle 都可合法 require。重新生成：
+客户端侧，本包自带一个独立的 `dsh.client`（`dist/client.js`，由 `scripts/build-client.mjs` 生成）：一个 `__ModuleLoader__.load({ id:"@islibaodong/dsh-login", factory })` 注册，应用 `src/settings-panel.client.js` 并注册「设置 → 用户管理/账户」分区（样式走框架 `--dsw-alias-*` 主题令牌；`dsh.client.inject` 列举 `@deepseek-ai/dsh-client-ui-settings`、`@deepseek-ai/dsh-client-locale`）。不再重打上游 connection 客户端。重新生成：
 
 ```bash
-npm run build:client   # node scripts/build-client.mjs；使用 node_modules 或 $DSH_HARNESS_CHECKOUT
+npm run build:client   # node scripts/build-client.mjs
 ```
-
-**升级 `@deepseek-ai/dsh-client-connection` 或修改 `src/settings-panel.client.js` 之后必须重新执行**，否则浏览器 bundle 会与新通道脱节。
 
 ## 安全说明
 
@@ -230,43 +223,41 @@ WebServer 只有一个 fallback 席位。dsh-web-app 的 `web-runtime` 行会无
 ## 运行测试
 
 ```bash
-# 标准全量测试（185 项；需要 DSH 源码做包解析——
+# 标准全量测试（184 项；option A 下在 DSH 0.1.5-alpha.1 上全绿——
 # 设置 DSH_HARNESS_CHECKOUT，或在默认路径旁运行）
 npx vitest run
 ```
 
-`.spec.ts` 文件是标准的 vitest 测试定义，含多用户套件（`users`、`ownership`、`hosts`、`api-filter`、`connection`、`admin-api`、`multiuser-e2e`、`client-bundle`、`settings-panel`、`remote-web-ui-compat`）。`tests/runner.mjs` 和 `tests/integration-runner.mjs` 是针对原单密码核心的沙箱兼容运行器，未随多用户功能扩展。
+`.spec.ts` 文件是标准的 vitest 测试定义，含纯逻辑/多用户相关套件（`users`、`ownership`、`hosts`、`session`、`gateway`、`admin-api`、`capabilities`、`remote-guard`、`remote-web-ui-compat`、`client-bundle`、`settings-panel`、`plugin-entry` 等）。`connection`/`api-filter`/`multiuser-e2e` 三个 spec 已在 option A 适配时移除（它们测试的是已删除的 `dsh-host-apiproxy` `/api` 接管）；`remote-guard.spec.ts` 覆盖了 REMOTE 层隔离守卫（含所有权收窄与管理员放行）。`tests/runner.mjs` 和 `tests/integration-runner.mjs` 是针对原单密码核心的沙箱兼容运行器，未随多用户功能扩展。
 
 ## 项目结构
 
 ```
 src/
-├── index.ts          # Cordis 插件入口：注册路由、fallback、所有权 + 通道子插件
+├── index.ts          # Cordis 插件入口：注册鉴权路由、fallback 登录墙、webRuntime
 ├── config.ts         # schemastery 配置 schema（password、distIndex、dataDir、sessionTtl 等）
 ├── users.ts          # UserStore：用户记录、scrypt 哈希、凭据系统持久化
 ├── session.ts        # SessionStore：会话（用户 + 管理员标记）+ TTL 过期，跨重启持久化
 ├── ownership.ts      # OwnershipIndex: sessionId → 用户名索引（去抖写 JSON 文件）
-├── hosts.ts          # TrustedHosts: /api 主机信任白名单（实时有效集 + 去抖 JSON 持久化）
-├── api-filter.ts     # 按用户的 ApiProxy 装饰器：允许清单、所有权守卫、帧过滤
-├── connection.ts     # dsh-login-connection：/api 通道接管 + WS 下联（子插件）
-├── connection.client.ts  # 浏览器半边：原样转发自带 connection 客户端
+├── hosts.ts          # TrustedHosts: 信任主机白名单（去抖 JSON 持久化）
+├── api-filter.ts     # 纯谓词（AuthUser/USER_ALLOWED/isUserAllowed）
+├── remote-guard.ts   # option A 隔离：typertGateway RBAC 守卫 + createRemoteIsolation 胶水
 ├── settings-panel.client.js  # 设置面板浏览器半边（纯 JS）：用户管理/账户分区，主题令牌样式
 ├── workspace-setting.ts  # 默认用户工作空间 runtime 开关（继承 BooleanSetting）
 ├── boolean-setting.ts  # live + 持久化的 {enabled} 运行时开关，被各管理开关复用
-├── remote-web-ui-compat.ts  # 写入 remote-web-ui 的 enabled+requirePairingForLan+publicBaseUrl（settings 驱动、实时）以挂载其路由、绕过配对门槛并信任公网 Host
+├── remote-web-ui-compat.ts  # 写入 remote-web-ui 的 enabled+requirePairingForLan+publicBaseUrl（settings 驱动、实时）
+├── capabilities.ts  # 能力发现（deriveCapabilities）+ 读探针分类（isReadProbe）
 ├── admin-api.ts      # /api/auth/me + /api/auth/admin/* JSON 路由（设置面板后端）
 ├── auth.ts           # Cookie 管理 + 常量时间比较工具
-├── gateway.ts        # 认证网关 handler（fallback + serveStatic）
+├── gateway.ts        # 认证网关 fallback（登录墙 + serveStatic + 上游 connection.authorizeIndex）
 ├── login-api.ts      # POST /api/auth/login + logout + setup
 ├── login-page.ts     # 登录页与设置页 HTML
 ├── http-json.ts      # readBody/sendJson 工具 + resolveDshHome
 └── web-runtime.ts    # webRuntime 接管：LAN 信任 + DSH_WEB_URL
 dist/client.js        # 构建产物浏览器 bundle（npm run build:client）
-scripts/build-client.mjs  # 重新生成 dist/client.js：自带通道 bundle + 设置面板
-tests/
-├── *.spec.ts         # vitest 测试定义
-└── memory-credentials.ts   # 测试用内存凭据提供器
-```
+scripts/build-client.mjs  # 生成 dist/client.js：设置面板 dsh.client 注册
+tests/（option A 下该目录已重写——详见 docs/verify-option-A.md）
+└── *.spec.ts         # vitest 测试定义
 
 ## 许可证
 

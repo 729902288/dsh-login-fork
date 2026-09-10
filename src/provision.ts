@@ -26,9 +26,19 @@
  */
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
-import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { OwnershipIndex } from './ownership.ts'
+
+/**
+ * Minimal structural surface the provisioner needs to seed one session. The
+ * old `@deepseek-ai/dsh-host-apiproxy` `ApiProxy` is gone in DSH ≥ 0.1.5-alpha.1,
+ * so the caller supplies the minimal shape (the upstream session controller's
+ * session.create) rather than a typed ApiProxy.
+ */
+export interface ProvisionSessionCreateApi {
+  sessions?: {
+    create(request: { rpcId: string; payload: { workspaceId?: string } }): Promise<{ result?: { ok?: boolean; value?: { sessionId?: string } } }>
+  }
+}
 
 /** Result of one workspaceRegistry.create call (structural, kept minimal). */
 interface WorkspaceRecord {
@@ -45,7 +55,7 @@ export interface ProvisionDeps {
   /** Root directory holding every user's sandbox (e.g. `<dshHome>/workspaces`). */
   workspaceRoot: string
   /** Accessor for the real (unwrapped) API; provisioning calls session.create on it. */
-  getApi: () => ApiProxy
+  getApi: () => ProvisionSessionCreateApi
   /** Ownership index the dsh-login fiber owns; the seeded session is attributed to it. */
   ownership: OwnershipIndex
   /** The durable workspace registry service (optional; provisioning skips without it). */
@@ -120,14 +130,13 @@ export class DefaultWorkspaceProvisioner {
     // ctx.apiProxy and dispatches session.create exactly as the wire handler
     // does (fetch/handler.ts: 'session.create' -> api.sessions.create).
     const api = this.deps.getApi()
-    if (api === undefined) return
-    const create = api.sessions?.create
+    const create = api?.sessions?.create
     if (create === undefined) return
     const request = {
       rpcId: 'dsh-login-default-workspace',
       payload: { workspaceId: workspace.id },
-    } as unknown as RpcRequest<never>
-    const res = (await create(request)) as { result?: { ok?: boolean; value?: { sessionId?: string } } }
+    }
+    const res = await create(request)
     if (res?.result?.ok === true && typeof res.result.value?.sessionId === 'string') {
       this.deps.ownership.record(res.result.value.sessionId, username)
     }

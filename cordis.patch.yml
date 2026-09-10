@@ -7,7 +7,8 @@
 # Accounts: no pre-configuration needed. On first visit the /login page shows
 # a setup form that creates the administrator account (username + password,
 # scrypt-hashed in the DSH credentials system under ref
-# DSH_LOGIN_PASSWORD_USERS); admins then manage users at /admin.
+# DSH_LOGIN_PASSWORD_USERS); admins then manage users from the GUI settings
+# panel (设置→用户管理).
 #
 # IMPORTANT: dsh-login claims the webserver fallback seat (the single
 # seat for everything no named route claims). The dsh-web-app bundle's
@@ -16,15 +17,21 @@
 # (LAN trust for the /api fence + DSH_WEB_URL) and serves the dist
 # itself through the authenticated gateway.
 
+# OPPORTUNITY (option A, DSH ≥ 0.1.5-alpha.1): dsh-login no longer takes over
+# the `/api` carrier. The shipped `connection` row (dsh-client-connection)
+# stays ENABLED and owns the /api transport + its browser session auth; the
+# `api-remotes` / `api-gateway` rows keep feeding the live Remote streams.
+# dsh-login instead composes its per-user login wall and ownership layer on
+# top of that native stack (see docs/adapt-dsh-0.1.5.md). The gateway below
+# (fallback seat) serves the SPA to authenticated users and runs the upstream
+# connection.authorizeIndex handshake on index responses, so the browser picks
+# up its /api cookie from the enabled connection row.
 - insert:
     - id: dsh-login
       name: '@islibaodong/dsh-login'
       config:
         password: DSH_LOGIN_PASSWORD
         # distIndex: '' resolves @deepseek-ai/dsh-web-frontend/dist automatically.
-        # trustedHosts defaults to []; if you launch with --trusted-host, add
-        # the same authorities here (a config row cannot read ctx.webStartup
-        # without declaring inject, so this patch pins no expression).
         sessionTtl: 604800
         takeOverWebRuntime: true
         enabled: true
@@ -32,25 +39,4 @@
 # The web-runtime row's fallback claim conflicts with dsh-login's gateway;
 # dsh-login re-provides webRuntime, so disabling it is safe.
 - id: web-runtime
-  disabled: true
-
-# The shipped /api carrier is replaced by dsh-login's identity-aware takeover
-# (`src/connection.ts`, mounted by dsh-login itself through the
-# createConnectionPlugin factory — its SessionStore/OwnershipIndex instances
-# live inside the dsh-login fiber, so it cannot ride a standalone row). The
-# webserver rejects duplicate /api prefix registrations, so the shipped row
-# must stay disabled. The takeover re-provides the `connection` service the
-# disabled row used to provide, so the Typert Remote gateway keeps serving
-# `POST /api/<namespace>/<method>` — the wire every installed UI plugin's
-# browser half calls — after login.
-#
-# Browser half (merge-gate Option A): dsh-login ships its own client bundle.
-# The package declares `dsh.client` (platform web, immediately) and exports
-# the built artifact `dist/client.js` — a re-stamped copy of the shipped
-# connection client bundle (src/connection.client.ts re-exports it verbatim;
-# regenerate with `npm run build:client` after upgrading the carrier). The
-# client-modules scanner picks browser halves from exactly this pair, so the
-# disabled shipped row no longer removes the GUI's wire client from the boot
-# graph.
-- id: connection
   disabled: true

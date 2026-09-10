@@ -29,10 +29,10 @@
  * This module is a no-op whenever remote-web-ui is not installed (its settings
  * namespace is not registered) or the settings service is absent.
  */
-import { settingsNamespace, type SettingsProvider } from '@deepseek-ai/dsh-settings'
+import type { SettingsProvider } from '@deepseek-ai/dsh-settings'
 
 /** The settings namespace remote-web-ui registers its own config into. */
-export const REMOTE_WEB_UI_NAMESPACE = settingsNamespace('remote-web-ui')
+export const REMOTE_WEB_UI_NAMESPACE = 'remote-web-ui' as const
 
 /** Outcome of one attempted write to the remote-web-ui namespace. */
 export type CompatApplyResult = 'ok' | 'skipped' | 'unregistered'

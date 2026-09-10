@@ -33,9 +33,33 @@ function indexRenderer(ctx: Context, distIndex: string): () => Promise<string> {
 }
 
 /**
- * Create the gateway handler used as the webserver fallback. Unauthenticated
- * requests are redirected to /login; authenticated requests are served static
- * files via the frontend-static serveStatic function.
+ * The index `authorizeIndex` callback handed to `serveStatic` (DSH ≥
+ * 0.1.5-alpha.1 requires it). dsh-login validates its login wall in the
+ * handler, so this only forwards to the upstream Connection service's
+ * `authorizeIndex`, which hands the browser its /api browser-session cookie
+ * (the now-enabled `connection` row owns /api transport). When Connection is
+ * absent from the fiber we accept, so a boot without it still serves.
+ *
+ * @returns true when the SPA index may be served; false when an upstream
+ *   redirect/401 has already been written.
+ */
+function createAuthorizeIndex(ctx: Context): (req: IncomingMessage, res: ServerResponse) => boolean {
+  return (req, res) => {
+    const connection = ctx.get('connection') as
+      | { authorizeIndex(req: IncomingMessage, res: ServerResponse): boolean }
+      | undefined
+    if (connection === undefined) return true
+    return connection.authorizeIndex(req, res)
+  }
+}
+
+/**
+ * Create the gateway handler used as the webserver fallback. The dsh-login
+ * login wall runs first: no valid dsh-login cookie → 302 to /login for any
+ * fallback path (pages, assets, SPA routes). Authenticated requests are served
+ * static files via the frontend-static `serveStatic`, whose `authorizeIndex`
+ * runs the upstream Connection browser-session handshake so the restored
+ * `connection` row accepts the SPA's /api calls.
  *
  * Uses registerFallback (not prefix /) because the WebServer's prefix match
  * checks 'pathname.startsWith(prefix + '/')' - for prefix '/' that becomes
@@ -50,6 +74,7 @@ export function createGatewayHandler(
 ): WebRoute['handler'] {
   const distRoot = dirname(config.distIndex)
   const renderIndex = indexRenderer(ctx, config.distIndex)
+  const authorizeIndex = createAuthorizeIndex(ctx)
 
   return async (req: IncomingMessage, res: ServerResponse) => {
     // Non-GET/HEAD without a matching named route is 405 (fallback-only
@@ -67,6 +92,13 @@ export function createGatewayHandler(
     }
     store.cleanup()
     const rawPath = new URL(req.url ?? '/', 'http://x').pathname
-    await serveStatic(decodeURIComponent(rawPath), res, distRoot, config.distIndex, renderIndex)
+    await serveStatic(
+      decodeURIComponent(rawPath),
+      res,
+      distRoot,
+      config.distIndex,
+      () => authorizeIndex(req, res),
+      renderIndex,
+    )
   }
 }

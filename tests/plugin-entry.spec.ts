@@ -173,18 +173,19 @@ describe('dsh-login plugin (full composition)', () => {
     expect(body.users.map(u => u.username).sort()).toEqual(['alice', 'root'])
   })
 
-  it('mounts the connection takeover on the /api prefix', { timeout: 60_000 }, async () => {
+  it('no longer mounts an /api takeover (option A: upstream connection owns /api)', { timeout: 60_000 }, async () => {
     const { port } = await loadComposition()
     const cookie = await setupAdmin(port, 's3cret')
 
-    // The takeover's /api prefix route answers before any session check:
-    // apiProxy is absent in this composition, so both anonymous and authed
-    // POSTs reach its `api === undefined` → 404 arm. Without the takeover,
-    // the gateway fallback would answer 405 for a POST (fallback-only
-    // semantics) — 404 proves the second plugin's route is mounted.
+    // Under option A (DSH ≥ 0.1.5-alpha.1) dsh-login does not claim the /api
+    // prefix — the native `connection` row does. In this test composition there
+    // is no connection row either, so a POST to /api reaches the gateway
+    // fallback, which answers 405 (fallback-only semantics). A 405 (rather than
+    // the old takeover's 404 api===undefined arm) proves no duplicate /api
+    // prefix route is mounted here.
     const anon = await request(port, '/api/sessions.list', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-    expect(anon.status).toBe(404)
+    expect(anon.status).toBe(405)
     const authed = await request(port, '/api/sessions.list', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: '{}' })
-    expect(authed.status).toBe(404)
+    expect(authed.status).toBe(405)
   })
 })

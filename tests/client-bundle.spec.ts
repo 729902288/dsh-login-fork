@@ -4,12 +4,11 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 /**
- * Merge-gate guard (Task 6): the dsh-login package must ship a self-sufficient
- * browser bundle so that disabling the shipped `connection` row in
- * cordis.patch.yml does not leave the GUI without its /api wire client.
- * The client-modules scanner discovers browser halves only from a package's
- * own `dsh.client` declaration + built `exports["./client"]` artifact
- * (packages/client/modules/src/index.ts resolveMeta/processOne).
+ * Bundle guard (option A): the dsh-login package ships a standalone browser
+ * bundle (`dist/client.js`) as its `dsh.client` contribution — the 设置→用户管理/账户
+ * settings panel over the native connection row (which owns /api).
+ * The client-modules scanner discovers browser halves from a package's own
+ * `dsh.client` declaration + built `exports["./client"]` artifact.
  */
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
@@ -41,18 +40,15 @@ describe('dsh-login browser client bundle (merge gate, Option A)', () => {
     expect(bundle).not.toContain('require("@deepseek-ai/dsh-client-connection')
   })
 
-  it('carries the settings-panel wrapper as a second registration', () => {
+  it('carries the settings-panel as the single plugin registration', () => {
     const client = pkg.exports['./client'] as string
     const bundle = readFileSync(join(repoRoot, client), 'utf8')
-    // Two registrations total: the re-stamped wire half (multi-line banner
-    // in the shipped bundle) and the single-line wrapper appended after it.
-    expect(bundle.match(/window\.__ModuleLoader__\.load\(/g)).toHaveLength(2)
-    // The shipped wire half is re-stamped to the internal id the wrapper
-    // materializes through the same-file require.
-    expect(bundle).toContain('id: "@islibaodong/dsh-login/connection"')
-    // The graph-row registration wraps it and carries the settings panel.
+    // Option A: one registration — the settings panel (a standalone dsh.client;
+    // the native connection row owns /api, so there is no wire re-stamp).
+    expect(bundle.match(/window\.__ModuleLoader__\.load\(/g)).toHaveLength(1)
+    // The graph-row registration wraps the settings panel directly.
     expect(bundle).toContain('window.__ModuleLoader__.load({ id: "@islibaodong/dsh-login"')
-    expect(bundle).toContain("require('@islibaodong/dsh-login/connection')")
+    expect(bundle).not.toContain('dsh-login/connection')
     expect(bundle).toContain('settings.section')
     expect(bundle).toContain('/api/auth/admin/users/disable')
     // Theme-following styles: the panel must skin via --dsw-alias-* tokens,

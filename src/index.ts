@@ -17,7 +17,6 @@ import { createAdminRoutes } from './admin-api.ts'
 import { renderLoginPage, renderSetupPage } from './login-page.ts'
 import { provideWebRuntime, resolveDistIndex } from './web-runtime.ts'
 import { resolveDshHome } from './http-json.ts'
-import { createConnectionPlugin } from './connection.ts'
 import { deriveCapabilities } from './capabilities.ts'
 
 /** Stable Cordis plugin name. */
@@ -27,6 +26,22 @@ export const name = 'dsh-login'
 export const inject = ['webServer', 'credentials']
 
 export { ConfigSchema as Config }
+
+// Compatibility seam (option A, DSH ≥ 0.1.5-alpha.1): the REMOTE-layer
+// per-user isolation guard. Re-exported from the host bundle so a deployment
+// that wants per-user isolation can import `wrapRemoteGateway` /
+// `createRemoteIsolation` FROM THIS PACKAGE and compose them over the native
+// `typertGateway` (see docs/verify-option-A.md §B). Note: this is a
+// composition primitive, NOT a runtime re-provide — dsh-login cannot
+// hot-swap the live `typertGateway` service (duplicate-service error).
+export { wrapRemoteGateway, createRemoteIsolation } from './remote-guard.ts'
+export type {
+  RemoteGateway,
+  RemoteInvokeRequest,
+  GuardUser,
+  UserResolver,
+  OwnedPredicate,
+} from './remote-guard.ts'
 
 /**
  * Register the multi-user authentication gateway on the web server:
@@ -61,10 +76,6 @@ export function apply(ctx: Context, config: Config): void {
   // (default on) and can be flipped by an admin at runtime from the settings
   // panel. The provisioner reads it per request, so the toggle binds immediately.
   const defaultWorkspaceSetting = new DefaultWorkspaceSetting(join(dataDir, 'settings.json'), config.defaultWorkspace)
-  // Absolute root for per-user default-workspace sandboxes when the feature is
-  // enabled (config.defaultWorkspace is the boot default; the runtime toggle is
-  // defaultWorkspaceSetting): explicit workspaceRoot or `<dshHome>/workspaces`.
-  const defaultWorkspaceRoot = config.workspaceRoot === '' ? join(resolveDshHome(), 'workspaces') : config.workspaceRoot
   // Live + persisted "remote-web-ui 兼容" toggle: when on (default), dsh-login
   // writes @linxin666/dsh-remote-web-ui's requirePairingForLan to false so
   // non-loopback (public FRP) desktop traffic rides dsh-login's /api channel
@@ -84,14 +95,6 @@ export function apply(ctx: Context, config: Config): void {
   // from webRuntime too; dsh-login's own fence used to see only the static
   // config list, which is why LAN IPs and frp public hosts needed hand-listing).
   const runtime = config.takeOverWebRuntime ? provideWebRuntime(ctx, config.trustedHosts) : undefined
-  const lanAuthorities = runtime?.lanAddresses ?? []
-  // Live effective set: LAN literals + config.trustedHosts + learned/manager
-  // hosts (deduped). The fence reads it per request so learned hosts bind
-  // immediately and removals take effect without a restart.
-  const effectiveTrustedHosts = (): string[] => {
-    const learned = config.autoTrustHosts ? hosts.list() : []
-    return [...new Set([...lanAuthorities, ...config.trustedHosts, ...learned])]
-  }
 
   const loginPageRoute: WebRoute = {
     kind: 'exact',
@@ -154,21 +157,6 @@ export function apply(ctx: Context, config: Config): void {
   ctx.effect(() => ctx.on('webserver/index-inject', (table: Array<{ kind: string; placement: string; text: string }>) => {
     table.push({ kind: 'script', placement: 'head', text: sessionBaselineScript })
   }), 'dsh-login: capability baseline injection')
-
-  // Identity-aware /api carrier takeover, mounted as a child plugin so its
-  // SessionStore/OwnershipIndex instances live in this fiber.
-  ctx.effect(() => {
-    const child = ctx.plugin(createConnectionPlugin({
-      store,
-      ownership,
-      trustedHosts: config.trustedHosts,
-      effectiveTrustedHosts,
-      defaultWorkspaceRoot,
-      isDefaultWorkspaceEnabled: () => defaultWorkspaceSetting.get(),
-      quietDenials: config.quietDenials,
-    }))
-    return () => { void child.stop?.() }
-  }, 'dsh-login: connection takeover')
 
   // Teardown: flush any pending ownership-index / trusted-hosts writes to
   // disk. Returning the Promise lets Cordis await it on stop so a freshly

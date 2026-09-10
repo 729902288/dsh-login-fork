@@ -6,15 +6,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 /**
  * Functional smoke of the settings-panel client half
  * (src/settings-panel.client.js): the plain-JavaScript factory is evaluated
- * against a stub module table (React + primitives + the internal connection
- * half), the returned plugin is applied over a fake Cordis context with a
- * stubbed /api/auth/me fetch, and the registered settings-section component
- * renders an element tree for both the admin and ordinary-user identities.
+ * against a stub module table (React + primitives), the returned plugin is
+ * applied over a fake Cordis context with a stubbed /api/auth/me fetch, and
+ * the registered settings-section component renders an element tree for both
+ * the admin and ordinary-user identities.
  *
- * The plugin is the boot graph's only `connection` provider, so the wire
- * discipline is asserted too: inject stays empty (a hard slots/locale wait
- * would deadlock — locale itself waits on connection) and the internal
- * connection client applies synchronously, before any identity probing.
+ * Under option A (DSH ≥ 0.1.5-alpha.1) this half is a standalone dsh.client
+ * contribution — it does NOT provide `connection` (the native connection row
+ * owns /api), so it declares no hard dependency and registers the settings
+ * section in a dependency fiber once slots + locale exist.
  */
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const source = readFileSync(join(repoRoot, 'src/settings-panel.client.js'), 'utf8')
@@ -25,8 +25,6 @@ const factory = new Function(`return (${source})`)() as (require: (spec: string)
   inject: string[]
   apply: (ctx: unknown) => void
 }
-
-const innerApply = vi.fn()
 
 function makeRequire() {
   const primitives = {
@@ -42,7 +40,6 @@ function makeRequire() {
   return vi.fn((spec: string) => {
     if (spec === 'react') return React
     if (spec === '@deepseek-ai/dsh-client-ui-primitives') return primitives
-    if (spec === '@islibaodong/dsh-login/connection') return { inject: [], apply: innerApply }
     throw new Error(`unexpected require: ${spec}`)
   })
 }
@@ -97,7 +94,6 @@ async function flush(): Promise<void> {
 
 afterEach(() => {
   vi.unstubAllGlobals()
-  innerApply.mockClear()
   fetchMock.mockReset()
 })
 
@@ -142,13 +138,11 @@ describe('settings-panel client factory', () => {
     expect(source).toContain('@media (max-width: 620px)')
   })
 
-  it('applies the internal connection client synchronously, before any probe', () => {
-    const { ctx } = makeCtx()
-    vi.stubGlobal('fetch', fetchMock)
-    // A stalled identity probe (never resolving) must not delay connection.
-    fetchMock.mockReturnValue(new Promise(() => {}))
-    factory(makeRequire()).apply(ctx)
-    expect(innerApply).toHaveBeenCalledTimes(1)
+  it('aligned header structure is preserved (see layout guards above)', () => {
+    // Keeping a lightweight structural assertion so the subgrid layout
+    // invariants remain pinned even as the wire provision changes.
+    expect(source).toContain('.dshlu-table { display: grid')
+    expect(source).toContain('grid-template-columns: subgrid')
   })
 
   it('registers the admin 用户管理 section for admins', async () => {
@@ -179,15 +173,12 @@ describe('settings-panel client factory', () => {
     expect(element).toBeTypeOf('object')
   })
 
-  it('registers nothing when the identity probe fails (connection still applied)', async () => {
+  it('registers nothing when the identity probe fails', async () => {
     const { ctx, sections } = makeCtx()
     vi.stubGlobal('fetch', fetchMock)
     fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: 'authentication required' }) })
     factory(makeRequire()).apply(ctx)
     await flush()
     expect(sections).toHaveLength(0)
-    // The connection client still applied — the wire half must not depend
-    // on the identity probe.
-    expect(innerApply).toHaveBeenCalledTimes(1)
   })
 })

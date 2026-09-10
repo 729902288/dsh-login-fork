@@ -1,5 +1,132 @@
 # Memory Changelog
 
+## 2026-09-08 — code-review fixes for the option-A guard (requesting-code-review round)
+- External code review of the option-A adaptation returned "with fixes". Applied the
+  in-repo-fixable items:
+- **(#2) package.json dangling exports:** removed `./connection` and `./connection-client`
+  export entries (both pointed to deleted `dist/connection*.js`).
+- **(#3) guard ID-scan hardening:** `collectIds()` now recurses arrays and nested
+  `{id}/{sessionId}/{workspaceId}/{agentId}` records, not just top-level string fields;
+  enabled `sessionIds`/`parentSessionIds`/`childSessionIds`/`agentId` fields. `ownershipGuarded`
+  rejects any collected foreign id. 3 new regression tests (array `sessionIds`, array of nested
+  `{id}`, nested `agentId`), all pass.
+- **(#4 admin) `createRemoteIsolation` admin resolution:** new optional `isAdminSession(sid)`
+  short-circuits before the sidecar, so an admin session with no ownership record still resolves
+  as admin (admin passes the guard unfiltered). `owns` returns true for an admin. 2 new tests.
+- **(#4 activation) guard reachable from the artifact:** `src/index.ts` re-exports
+  `wrapRemoteGateway`/`createRemoteIsolation` (+ types), so `dist/index.js` carries them for
+  deployment composition. **Reconciled with the architecture:** a runtime `isolateRemote`
+  re-provide would be a duplicate-service conflict (docs confirmed); the guard remains a
+  composition primitive, not a hot-swap — documented in README + verify-option-A §B.
+- **(#7 README/zh resync):** removed the false "isolation working" claim and the stale
+  "disables the connection row" manual-install block + `/api takeover` ASCII diagram; test count
+  168 → 184; project-structure adds `remote-guard.ts`; EN+ZH both describe the composition
+  primitive truthfully. remote-guard.spec now **21 tests**; suite green **17 files / 189 tests**;
+  imports exit 0; build exit 0.
+- Remaining (genuinely boot-bound): compose the guard over the native `typertGateway` in a real
+  deployment + two-browser isolation behavioral sign-off (§B).
+
+## 2026-09-08 — composed seam end-to-end tests (item 3 progress)
+- Added 3 integration tests to `remote-guard.spec.ts` composing the whole seam:
+  a fake `agents` service → `createRemoteIsolation` → `wrapRemoteGateway` → fake gateway.
+  Verifies: a user may read their own session, a foreign session is blocked before reaching
+  the gateway, two users are isolated per the active agent, non-admin denied admin namespaces.
+  remote-guard.spec now 16 tests; suite green **17 files / 184 tests**; imports exit 0;
+  build exit 0.
+- `cordis.patch.yml` comment corrected (`/admin` → 设置→用户管理); composition already
+  option-A coherent (connection enabled, web-runtime disabled, plugin row present).
+- Remaining (genuinely boot-bound): compose the guard over the native `typertGateway` in a
+  real deployment + two-browser isolation behavioral sign-off.
+
+## 2026-09-08 — remote-guard glue fix (owns user-scoped) + createRemoteIsolation coverage
+- Writing tests for `createRemoteIsolation` exposed a real bug: its `owns` predicate was
+  user-independent (`lookup(id) !== undefined`), so user A would "own" user/workspace ids
+  belonging to any user who has an ownership record. Fixed: `owns` now scopes to the resolved
+  user (`ownership.lookup(id) === user.username`), fail-closed when the caller can't be
+  resolved.
+- Added 5 `createRemoteIsolation` tests (resolve user from current session id via sidecar;
+  user-scoped owns; isAdmin callback; fail-closed on no current session; fail-closed on
+  unknown session). Suite now green **17 files / 181 tests**; imports exit 0; build exit 0.
+- Remaining: compose the guard over native typertGateway + two-user boot sign-off (§B).
+
+## 2026-09-08 — option A settings-panel client re-home (verified)
+- `src/settings-panel.client.js`: standalone `dsh.client` — removed the stale
+  `@islibaodong/dsh-login/connection` require and the `connection` provision
+  (the native `connection` row owns /api under option A); registers 设置→用户管理/账户
+  over `slots`+`locale` only.
+- `scripts/build-client.mjs` recreated: `dist/client.js` = a single
+  `__ModuleLoader__.load({ id:"@islibaodong/dsh-login", factory })` closure over the panel
+  (no connection re-stamp). `package.json` `build` = `build:host && build:client`.
+- Removed stale `dist/connection*.js`; `dist/` now only `index.js` + `client.js`.
+- Tests updated: `settings-panel.client.spec.ts` (dropped connection-apply assertions),
+  `client-bundle.spec.ts` (single-registration option-A shape). Suite green 17/176.
+- Remaining isolation gap (also handoff §B): composed guard; needs multi-user web boot.
+
+## 2026-09-08 — CORRECTION: "blocked" was wrong; build + seam are achievable in this session
+- Earlier round marked the goal blocked citing (1) "no webServer" and (2) "no TS toolchain".
+  Both were **refuted by in-session evidence**: `webServer` is a live injectable service
+  (`ctx.get("webServer")` / `inject:["webServer"]`), the harness checkout has
+  `node_modules/.bin/tsc` + `pnpm` + built `connection` lib, and this plugin's
+  `npm run build:host` **succeeds** (`dist/index.js`, 46.2kb, bundle imports and exports
+  `Config/apply/inject/name`). The earlier "no tsc" check ran `npx tsc` from the plugin
+  workspace, missing the harness node_modules.
+- Live seam characterization: `typertGateway` is injectable with
+  `invoke({namespace,method,args})` / `stream`; `InvokeRemoteRequest` carries **no browser-user
+  field** — Remote is agent-keyed (Typert Context/agentId). `connection` is NOT a catalogued
+  service in this runtime (it's the web-profile transport row).
+- New `src/remote-guard.ts` (`wrapRemoteGateway`): typertGateway RBAC wrapper — denies
+  admin-only namespaces, denies methods outside the ordinary-user surface
+  (`USER_ALLOWED`), denies args addressing a non-owned session/workspace (fail-closed `owns`
+  default), admin passthrough. Wired with `resolveUser`/`owns` callbacks. 8 unit tests added;
+  suite now **green 17 files / 176 tests**.
+- Isolation-in-option-A conclusion: Remote is agent-keyed, so per-user isolation is best
+  achieved by construction (each dsh-login user acts inside their own agent subtree recorded in
+  the ownership sidecar) + the typertGateway guard. Remaining real deployment glue: the
+  agentId→dsh-login-user resolver and owned-set lookup (needs a running multi-session web,
+  which this agent session cannot host — no connection/multi-agent). Docs `verify-option-A.md`
+  §B updated.
+
+## 2026-09-08 — option A adaptation: host loads + test suite green on 0.1.5
+- Continued `docs/adapt-dsh-0.1.5.md` option A. Verifiable state: `scripts/verify-imports.mjs`
+  exit 0; **full vitest suite green (16 files / 168 tests)** against the built 0.1.5 harness
+  (vitest runs in this workspace).
+- `gateway.ts`: login wall (302 /login) restored in the handler; `authorizeIndex` param now
+  only forwards to upstream `connection.authorizeIndex` (the 0.1.5 `serveStatic` 6-arg shape).
+- Removed obsolete `tests/connection.spec.ts`, `tests/api-filter.spec.ts`,
+  `tests/multiuser-e2e.spec.ts` (imported the deleted `dsh-host-apiproxy` takeover); updated
+  stale `gateway.spec.ts` (renderIndex always injects boot manifest) and `plugin-entry.spec.ts`
+  (no /api takeover → fallback 405).
+- Build pipeline reconciled for option A: `build-host.mjs` bundles only `src/index.ts` →
+  `dist/index.js`; `build-client.mjs` deleted; `package.json` `build` = `build:host`,
+  `vendor/` dropped from files, `dsh-host-apiproxy`/`ws` deps removed.
+- Still boot-bound (cannot run in this agent session — no webServer to boot, no TS toolchain):
+  per-user isolation seam re-home, settings-panel client re-home + `dist` rebuild, isolation
+  tests. Handoff in `docs/verify-option-A.md`.
+
+## 2026-09-08 — analysis: dsh-login incompatible with DSH ≥ 0.1.5-alpha.1 (transport rework)
+- Upstream `dsh-v0.1.5-alpha.1` removed the WebSocket-downlink event carrier that
+  `src/connection.ts` takes over: commit `dcddaa1a6e` "replace legacy Host event carriers"
+  deletes `packages/client/connection/src/websocket-downlink.ts` (`WebSocketDownlinks`,
+  `rejectWebSocketUpgrade`), drops `HOST_EVENTS_PATH`/`MUX_EVENTS_PATH` from `api-path.ts`,
+  changes `HostConnectionService` ctor to `(ctx, trustedHosts, browserAuth)` and
+  `createSharedFetchHandler(channel)` to return a `ConnectionFetchHandler`, and (in a related
+  rework) removes the `dsh-host-apiproxy` package (`ApiProxy`, `toFetchHandler`) that the whole
+  per-user proxy layer in `api-filter.ts`/`connection.ts` was built on.
+- New transport: unary `/api` stays in `dsh-client-connection`; live Remote streams move to a
+  **gateway-owned WebSocket mux** (`packages/api/gateway` `TypertGateway` `RemoteStreamMuxServer`)
+  fed by `dsh-api-remotes`; `dsh-client-connection` now ships its own **persistent single-session
+  `BrowserAuth`** (HMAC cookie + process launch-token index exchange).
+- Consequence: shipped dsh-login loads only against DSH `< 0.1.5-alpha.1`. Port is a redesign
+  (compose a per-user ownership/authorization layer on the native connection+gateway rather than
+  replacing the carrier; decide whether the `connection` row stays disabled; re-filter Remote
+  streams at the controller or gateway layer; rebuild `dist/client.js`). Full plan in
+  `docs/adapt-dsh-0.1.5.md`.
+- Role-based control of third-party UI-plugin slots/sections: **still absent at 0.1.5**
+  (`useSections` unchanged, no per-identity slot filter / activation gate).
+- Not ported here: this workspace cannot build/verify the security-critical carrier rewrite
+  (harness `lib` for apiproxy/connection unbuilt; `connection.ts` can't typecheck). Do not ship
+  a blind port. README status + changelog updated to document the incompatibility.
+
 ## 2026-08-28 — boundary note: plugin-self-registered `/api/*` exact routes are outside dsh-login
 - Regression found that UI plugins (e.g. `@linxin666/dsh-pet`) register their OWN
   exact routes (`/api/pet/pets`, `/api/pet/state`, …) via `webServer.register`

@@ -8,8 +8,6 @@
     ".": {
       "default": "./dist/index.js"
     },
-    "./connection": "./dist/connection.js",
-    "./connection-client": "./dist/connection-client.js",
     "./client": "./dist/client.js",
     "./src/*": "./src/*",
     "./package.json": "./package.json"
@@ -20,6 +18,7 @@
     "build:host": "node scripts/build-host.mjs",
     "build:client": "node scripts/build-client.mjs",
     "build": "npm run build:host && npm run build:client",
+    "verify:imports": "node --import tsx/esm scripts/verify-imports.mjs",
     "prepack": "npm run build"
   },
   "engines": {
@@ -43,15 +42,11 @@
     "@deepseek-ai/cordis": "^4.0.1-rc.1",
     "@deepseek-ai/dsh-client-connection": ">=0.1.0-rc.1 <0.1.1 || >=0.1.1-rc.0 <0.2.0-0",
     "@deepseek-ai/dsh-credentials": ">=0.1.0-rc.1 <0.1.1 || >=0.1.1-rc.0 <0.2.0-0",
-    "@deepseek-ai/dsh-host-apiproxy": ">=0.1.0-rc.1 <0.1.1 || >=0.1.1-rc.0 <0.2.0-0",
     "@deepseek-ai/dsh-host-frontend-static": ">=0.1.0-rc.1 <0.1.1 || >=0.1.1-rc.0 <0.2.0-0",
     "@deepseek-ai/dsh-host-webserver": ">=0.1.0-rc.1 <0.1.1 || >=0.1.1-rc.0 <0.2.0-0",
     "@deepseek-ai/dsh-settings": ">=0.1.1-rc.0 <0.2.0-0",
     "@deepseek-ai/dsh-web-frontend": ">=0.1.0-rc.1 <0.1.1 || >=0.1.1-rc.0 <0.2.0-0",
     "@deepseek-ai/schemastery": "^3.18.1-rc.1"
-  },
-  "dependencies": {
-    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
@@ -59,7 +54,6 @@
     "@deepseek-ai/cordis-plugin-loader": "^1.0.2",
     "@deepseek-ai/dsh-client-connection": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-credentials": "^0.1.1-rc.2",
-    "@deepseek-ai/dsh-host-apiproxy": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-host-frontend-static": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-host-webserver": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-invariants": "^0.1.1-rc.2",
@@ -79,7 +73,6 @@
   "files": [
     "src",
     "dist",
-    "vendor",
     "cordis.patch.yml",
     "screenshots.json",
     "LICENSE",

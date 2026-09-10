@@ -8,18 +8,19 @@ Adds a **login page, user accounts, and per-user conversation isolation** to the
 |:---:|:---:|
 | ![Login page](images/login.png) | ![User management](images/users.png) |
 
-> **⚠️ Development on this repository is paused.** See [Current status →](#current-status--development-paused).
+> **⚠️ Development on this repository paused; compatibility with DSH ≥ 0.1.5-alpha.1 is IN PROGRESS (option A).** Upstream reworked the `/api` transport. The host source has been ported to load against 0.1.5 and the `connection` row is re-enabled; **per-user conversation/workspace isolation is NOT yet re-established at the new remote layer and must be boot-verified.** See [`Current status →`](#current-status--development-paused) and [`docs/adapt-dsh-0.1.5.md`](docs/adapt-dsh-0.1.5.md).
 
 ---
 
 ## Current status — development paused
 
-**Work here is paused.** What shipped — the login wall, multi-account user management, per-user conversation/workspace isolation, remote-web-ui compatibility, capability discovery, and quiet read-denials — is complete and in service. The one thing that could **not** be finished is **per-role control of third-party UI-plugin features** (hide the no-permission ones, don't render them, don't let them request), and that is **blocked on upstream DSH support**, not on something this package can fix alone.
+**Work here is paused, and the DSH ≥ 0.1.5-alpha.1 re-adaptation is in progress under option A.** Upstream `dsh-v0.1.5-alpha.1` (2026-09-08) removed the WebSocket-downlink event carrier and the `dsh-host-apiproxy` package that this plugin's `/api` takeover was built on. The re-adaptation **stops taking over `/api`** and composes a per-user layer on the native `connection` + `api-gateway` stack instead. The host source has been ported and **loads against the built 0.1.5 harness**; the `connection` row is re-enabled and the login wall serves the SPA through the upstream connection handshake. The settings-panel client re-home, the `dist` host rebuild, and the test-suite rewrite are **done** (17 files / 189 tests green). **Deliberately NOT yet boot-verified (needs a real `dsh web` boot to confirm):** per-user conversation/workspace isolation re-homed at the new remote/controller layer and the two-browser isolation sign-off (see [`docs/verify-option-A.md`](docs/verify-option-A.md) §B). See [`docs/adapt-dsh-0.1.5.md`](docs/adapt-dsh-0.1.5.md) for the status matrix. The one original goal that still cannot be finished is **per-role control of third-party UI-plugin features** — that is **blocked on upstream DSH support** (even at 0.1.5 there is no per-identity slot/section filter or per-role plugin activation gate).
 
 **Delivered and working**
-- Login wall + multi-account user management (设置 → 用户管理) + per-user conversation/workspace isolation.
+- Login wall + multi-account user management (设置 → 用户管理).
 - Capability discovery (`GET /api/auth/capabilities`, session-authenticated) and quiet read-denials (`204` for a no-permission read probe, `403` for writes; toggle via `quietDenials`), so ordinary-user browsers stop getting "forbidden" walls and retry storms.
 - dsh-login's **own** settings contribution is **already per-user**: admins see 设置 → 用户管理, ordinary users see 账户 (identity + logout); ordinary users never call the admin API.
+- **Per-user isolation guard ships as a composition primitive (option A).** Under DSH ≥ 0.1.5 the native `connection`/`api-gateway` owns `/api`, so dsh-login's isolation is a REMOTE-layer guard — `wrapRemoteGateway` + `createRemoteIsolation`, exported from this package's host bundle and unit/integration-tested (including ownership scoping and admin passthrough). `connection` ownership + per-user default workspace are re-established on the native stack. **The guard itself must be composed over the native `typertGateway` row at boot** (a deployment decision, not a runtime hot-swap — re-providing `typertGateway` would be a duplicate-service error) and its behavior verified with a two-browser boot; it is **not** enforced by the shipped patch alone yet. See [`docs/verify-option-A.md`](docs/verify-option-A.md) §B.
 
 **Known limitation — why per-role control of the whole UI could not ship**
 - DSH's settings panel renders a **single global section list** (`SettingsRoot` → `useSections`, a `HostObservable<readonly SettingsSectionRow[]>` with no identity dimension), so a plugin's settings section cannot be shown/hidden per user from inside `dsh-login`.
@@ -80,7 +81,7 @@ dsh plugin --profile web remove @islibaodong/dsh-login
 
 - mounts the `dsh-login` plugin row (config defaults are sensible; `distIndex` resolves the frontend dist automatically)
 - disables the `web-runtime` row (where dsh-web-app mounts the frontend-static fallback); dsh-login takes over the fallback seat and re-provides the `webRuntime` service (LAN trust for the `/api` fence + the `DSH_WEB_URL` variable)
-- disables the shipped `connection` row (the `/api` carrier); dsh-login mounts its own identity-aware takeover and ships the matching browser bundle `dist/client.js`
+- **keeps the shipped `connection` row enabled** (option A, DSH ≥ 0.1.5): dsh-client-connection owns the `/api` carrier and browser-session auth; dsh-login composes its login wall (fallback seat) + per-user isolation primitive on top. It ships its own browser bundle `dist/client.js` for the settings panel only.
 
 ### Manual installation (alternative)
 
@@ -105,13 +106,10 @@ If you prefer managing the patch file yourself, add these rows to your profile's
 # webRuntime service, so the rest of the composition is unaffected.
 - id: web-runtime
   disabled: true
-
-# IMPORTANT: the WebServer rejects duplicate /api prefix registrations, so the
-# shipped connection row must stay disabled; dsh-login mounts its own
-# identity-aware takeover (and ships the browser bundle dist/client.js).
-- id: connection
-  disabled: true
 ```
+> The shipped `connection` row (dsh-client-connection) stays **enabled** in option A —
+> it owns `/api` and the browser-session auth. Do not disable it. dsh-login's per-user
+> isolation guard ships as a composition primitive (see [`/api` integration ➜](#api-integration-option-a-dsh--015-alpha1)) and must be composed over `typertGateway` at boot to take effect.
 
 > Note: new rows must live under `- insert:` — a bare top-level row is treated as an override of an existing row and is a silent no-op for new ids; and the disable key is `disabled` (not `disable`).
 
@@ -129,23 +127,18 @@ If you prefer managing the patch file yourself, add these rows to your profile's
 
 ```
 Request -> WebServer
-  ├─ /login (exact)            -> setup page (if no users) OR login page
-  ├─ /api/auth/setup (exact)  -> POST: create admin on first use (403 if users exist)
-  ├─ /api/auth/login (exact)  -> POST: verify {username,password}, set cookie
-  ├─ /api/auth/logout (exact) -> POST: revoke session, clear cookie
-  ├─ /logout (exact)          -> GET: same revocation, redirect to /login
-  ├─ /api/auth/me (exact)     -> GET: current session identity
-  ├─ /api/auth/admin/* (exact) -> admin JSON API (users, password, disable, remove)
-  ├─ /api/* (prefix)          -> dsh-login connection takeover:
-  │                             ├─ untrusted host -> 403
-  │                             ├─ no valid cookie -> 401
-  │                             ├─ GET on event paths -> 426 (upgrade required)
-  │                             └─ per-user dispatch through a filtered proxy
-  ├─ /api/events.mux + /api/events.host (WS upgrade) -> same trust + cookie checks,
-  │                             then ownership-filtered per-user downlinks
-  └─ fallback                  -> dsh-login: auth gateway + static files
-                                  ├─ no valid cookie -> 302 /login
-                                  └─ valid cookie   -> serveStatic()
+  ├─ /login (exact)            -> dsh-login: setup page (if no users) OR login page
+  ├─ /api/auth/setup (exact)  -> dsh-login: POST create admin on first use (403 if users exist)
+  ├─ /api/auth/login (exact)  -> dsh-login: POST verify {username,password}, set cookie
+  ├─ /api/auth/logout (exact) -> dsh-login: POST revoke session, clear cookie
+  ├─ /logout (exact)          -> dsh-login: GET same revocation, redirect to /login
+  ├─ /api/auth/me (exact)     -> dsh-login: GET current session identity
+  ├─ /api/auth/admin/* (exact) -> dsh-login: admin JSON API (users, password, disable, remove)
+  ├─ /api/...                 -> native connection + api-remotes/api-gateway (option A):
+  │                             browser-session auth, typert REMOTE dispatch, WS streams
+  └─ fallback                 -> dsh-login: auth gateway + static files
+                                ├─ no valid cookie -> 302 /login
+                                └─ valid cookie   -> serveStatic + connection.authorizeIndex
 ```
 
 - **Cookie:** `dsh_session`, HttpOnly, SameSite=Strict, Path=/
@@ -154,7 +147,7 @@ Request -> WebServer
 
 ## Multi-user permission model
 
-- **Ordinary users are conversation-only.** Through the `/api` takeover they see and act on their **own** sessions plus lineage children (subagents/forks — ownership follows `parentSessionId`), and workspace views are filtered down to owned sessions. Everything else is off limits:
+- **Ordinary users are conversation-only.** In option A the native `connection`/`api-gateway` owns `/api` and is agent-keyed; per-user isolation is provided by dsh-login's REMOTE-layer guard (`wrapRemoteGateway`, exported from this package) which — once composed over `typertGateway` — restricts ordinary users to their **own** sessions plus lineage children (subagents/forks — ownership follows `parentSessionId`), and filters workspace views down to owned sessions. Everything else is off limits:
   - physical allow-list: a fixed set of `session.*`, `subagent.*`, `workspace.*`, `goal.*` methods plus `skill.list`, `host.describe`, `llm.providers`/`llm.models` and `respond`; any other wire method is a 403 before it reaches the harness
   - admin-only domains: `credentials.*`, `settings.*`, `agentPresets.*` are forbidden wholesale
   - also forbidden: `llm.discoverModels` and the privileged `host.*` directory dialogs (`pickDirectory`, `listDirectory`, `createDirectory`, `openPath`)
@@ -179,19 +172,27 @@ Request -> WebServer
 | Remote-web-ui compat toggle | `<DSH_HOME>/.dsh-login/settings-remote-web-ui.json` (configurable via `dataDir`) |
 | Login sessions | `<DSH_HOME>/.dsh-login/sessions.json` (0o600; persisted across restarts, TTL drops stale) |
 
-## `/api` carrier takeover & the client bundle
+## `/api` integration (option A, DSH ≥ 0.1.5-alpha.1)
 
-This plugin replaces the shipped `/api` connection row: `cordis.patch.yml` disables it (the WebServer rejects duplicate `/api` prefix registrations, so the shipped row must stay off) and `dsh-login` mounts its own identity-aware carrier (`src/connection.ts`) as a child plugin — same host-trust fence, but every request is resolved from the session cookie and dispatched per user.
+For DSH ≥ 0.1.5-alpha.1 dsh-login **no longer takes over the `/api` carrier**: `cordis.patch.yml`
+leaves the shipped `connection` row enabled, so `dsh-client-connection` + `api-remotes` /
+`api-gateway` own the `/api` transport and the live Remote streams. dsh-login composes its
+per-user layer on top of that native stack (see [`docs/adapt-dsh-0.1.5.md`](docs/adapt-dsh-0.1.5.md)
+and the verification checklist [`docs/verify-option-A.md`](docs/verify-option-A.md)):
+fallback login wall + static serving through the native `serveStatic`, plus
+`connection.authorizeIndex` on index responses so the browser receives its upstream `/api`
+cookie. The old `src/connection.ts` carrier takeover and its `dist/client.js` re-stamp were
+removed with the `dsh-host-apiproxy`-based per-user `ApiProxy`. The per-user conversation /
+workspace isolation is re-homed as a REMOTE-layer guard — `wrapRemoteGateway` +
+`createRemoteIsolation`, exported from this package's host bundle and unit/integration-tested —
+which a deployment composes over the native `typertGateway` at boot. **Composition + two-browser
+behavioral sign-off is the remaining, boot-bound step** (see [`docs/verify-option-A.md`](docs/verify-option-A.md) §B).
 
-**Host trust is evaluated live per request.** Instead of a static list, the fence checks a deduped effective set — LAN literals from the web runtime + `trustedHosts` + the persisted whitelist (`src/hosts.ts`). A successful login/setup auto-learns the request Host (gated by `autoTrustHosts`, default true), so a public host reached through frp/隧道/tunnels is trusted after one login; learned hosts bind immediately and removals apply without a restart.
-
-The browser half is untouched protocol-wise, but the GUI's wire client must keep coming from this package: the client-modules scanner drops browser halves of disabled rows from the boot graph. dsh-login therefore declares its own `dsh.client` and ships the bundle `dist/client.js` — a re-stamped copy of the shipped connection client (`src/connection.client.ts` re-exports it verbatim) **plus a second module registration**: the settings-panel wrapper (`src/settings-panel.client.js`) that applies the wire client verbatim and registers the 设置 → 用户管理/账户 settings section (styled via the framework's `--dsw-alias-*` theme tokens; stylesheet pre-tagged `data-plugin`/`data-plugin-css` the way the framework's own bundle preset does). The `dsh.client.inject` field follows the ecosystem convention — it lists the PACKAGE ids behind the services the browser half needs (`@deepseek-ai/dsh-client-ui-settings`, `@deepseek-ai/dsh-client-locale`), not service names; the runtime fiber's exported `inject` stays authoritative. React and the UI primitives resolve through the platform module-table seeds every bundle may require. Regenerate it with:
-
-```bash
-npm run build:client   # node scripts/build-client.mjs; uses node_modules or $DSH_HARNESS_CHECKOUT
-```
-
-**You must re-run this after upgrading `@deepseek-ai/dsh-client-connection` or editing `src/settings-panel.client.js`**, or the browser bundle goes stale against the new carrier.
+**Host trust is evaluated live per request.** The `/api` fence uses a deduped effective set —
+LAN literals from the web runtime + `trustedHosts` + the persisted whitelist (`src/hosts.ts`).
+A successful login/setup auto-learns the request Host (gated by `autoTrustHosts`, default
+true), so a public host reached through frp/隧道/tunnels is trusted after one login; learned
+hosts bind immediately and removals apply without a restart.
 
 ## Security notes
 
@@ -233,26 +234,24 @@ The WebServer has a single fallback seat. dsh-web-app's `web-runtime` row mounts
 ## Running tests
 
 ```bash
-# Canonical full suite (185 tests; requires the DSH checkout for package
+# Canonical full suite (189 tests, green under option A against DSH 0.1.5-alpha.1; requires the DSH checkout for package
 # resolution — set DSH_HARNESS_CHECKOUT or run beside the default path)
 npx vitest run
 ```
 
-The `.spec.ts` files are the canonical vitest definitions, including the multi-user suites (`users`, `ownership`, `hosts`, `api-filter`, `connection`, `admin-api`, `multiuser-e2e`, `client-bundle`, `settings-panel`, `remote-web-ui-compat`). `tests/runner.mjs` and `tests/integration-runner.mjs` are sandbox-compatible harnesses for the original single-password core only; they were not extended for the multi-user feature.
+The `.spec.ts` files are the canonical vitest definitions, including the pure/multi-user-adjacent suites (`users`, `ownership`, `hosts`, `admin-api`, `session`, `gateway`, `capabilities`, `remote-web-ui-compat`, `client-bundle`, `settings-panel`, `plugin-entry`, …). The `connection` / `api-filter` / `multiuser-e2e` specs were **removed** in the option-A adaptation (they tested the deleted `dsh-host-apiproxy` `/api` takeover); new isolation tests will be written once the per-user isolation seam lands. `tests/runner.mjs` and `tests/integration-runner.mjs` are sandbox-compatible harnesses for the original single-password core only; they were not extended for the multi-user feature.
 
 ## Project structure
 
 ```
 src/
-├── index.ts          # Cordis plugin entry: registers routes, fallback, ownership + connection child plugin
+├── index.ts          # Cordis plugin entry: registers auth routes, fallback login gateway, webRuntime
 ├── config.ts         # schemastery config schema (password, distIndex, dataDir, sessionTtl, ...)
 ├── users.ts          # UserStore: user records, scrypt hashing, credentials-backed persistence
 ├── session.ts        # SessionStore: sessions (user + admin flag) with TTL expiry, persisted across restarts
 ├── ownership.ts      # OwnershipIndex: sessionId → username sidecar (debounced JSON file)
-├── hosts.ts          # TrustedHosts: /api host-trust whitelist (live set + debounced JSON persistence)
-├── api-filter.ts     # per-user ApiProxy decorator: allow-list, ownership guards, frame filtering
-├── connection.ts     # dsh-login-connection: /api carrier takeover + WS downlinks (child plugin)
-├── connection.client.ts  # browser half: re-exports the shipped connection client verbatim
+├── hosts.ts          # TrustedHosts: trusted-host whitelist (live set + debounced JSON persistence)
+├── api-filter.ts     # pure predicates (AuthUser/USER_ALLOWED/isUserAllowed) for the per-user admission seam
 ├── settings-panel.client.js  # settings-panel browser half (plain JS): 用户管理/账户 section, theme-token styled
 ├── workspace-setting.ts  # 默认用户工作空间 runtime toggle (extends BooleanSetting)
 ├── boolean-setting.ts  # live + persisted {enabled} runtime flag shared by admin switches
@@ -260,16 +259,14 @@ src/
 ├── capabilities.ts  # capability discovery (deriveCapabilities) + read-probe classifier (isReadProbe/QUIET_DENY_METHODS)
 ├── admin-api.ts      # /api/auth/me + /api/auth/capabilities + /api/auth/admin/* JSON routes (settings-panel backend)
 ├── auth.ts           # Cookie management + constant-time compare helpers
-├── gateway.ts        # Auth gateway handler (fallback + serveStatic)
+├── gateway.ts        # Auth gateway fallback (login wall + serveStatic + upstream connection.authorizeIndex)
 ├── login-api.ts      # POST /api/auth/login + logout + setup
 ├── login-page.ts     # Login and setup page HTML
 ├── http-json.ts      # readBody/sendJson helpers + resolveDshHome
+├── remote-guard.ts   # REMOTE-layer per-user isolation guard (wrapRemoteGateway + createRemoteIsolation), exported from the host bundle
 └── web-runtime.ts    # webRuntime takeover: LAN trust + DSH_WEB_URL
-dist/client.js        # built browser bundle (npm run build:client)
-scripts/build-client.mjs  # regenerates dist/client.js: shipped carrier bundle + settings panel
-tests/
-├── *.spec.ts         # vitest test definitions
-└── memory-credentials.ts   # Test-only in-memory credential provider
+tests/ (option-A suite: 17 files / 189 tests green)
+└── *.spec.ts         # vitest test definitions
 ```
 
 ## License
