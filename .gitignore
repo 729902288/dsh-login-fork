@@ -10,3 +10,19 @@ test-esbuild*
 test-execfile*
 test-ts.ts
 /.idea/
+
+# Tooling / editor / agent config (not part of the package source)
+/.clinerules
+/.cursorrules
+/.roomodes
+/.windsurfrules
+/.github/copilot-instructions.md
+/CLAUDE.md
+/CONVENTIONS.md
+/.claude/hooks/
+/.claude/settings.json
+
+# Scratch / ad-hoc files
+/tmp/
+/-w
+/tokens.txt
