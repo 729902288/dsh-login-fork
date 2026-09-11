@@ -29,12 +29,18 @@ export function extractSessionToken(cookieHeader: string | undefined): string | 
   return undefined
 }
 
-/** Build a Set-Cookie header value that sets the session token. */
+/** Build a Set-Cookie header value that sets the session token.
+ *
+ * `SameSite=Lax` (not `Strict`): the gateway's login redirect can arrive from a
+ * cross-site authorization server, and a `Strict` cookie is withheld on the
+ * first top-level navigation of such a chain — the browser would bounce back
+ * unauthenticated. Lax still withholds the cookie from cross-site POSTs, which
+ * is the CSRF property that matters here. */
 export function buildCookieHeader(token: string, ttlSeconds: number): string {
-  return `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${String(ttlSeconds)}`
+  return `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${String(ttlSeconds)}`
 }
 
 /** Build a Set-Cookie header value that clears the session token. */
 export function buildClearCookieHeader(): string {
-  return `${COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`
+  return `${COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`
 }

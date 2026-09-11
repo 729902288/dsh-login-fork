@@ -566,10 +566,10 @@ function extractSessionToken(cookieHeader) {
   return void 0;
 }
 function buildCookieHeader(token, ttlSeconds) {
-  return `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${String(ttlSeconds)}`;
+  return `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${String(ttlSeconds)}`;
 }
 function buildClearCookieHeader() {
-  return `${COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`;
+  return `${COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`;
 }
 
 // src/gateway.ts
