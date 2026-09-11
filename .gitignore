@@ -26,3 +26,6 @@ test-ts.ts
 /tmp/
 /-w
 /tokens.txt
+
+# env files (npm toolchain side-effect)
+/.env

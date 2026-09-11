@@ -1,5 +1,28 @@
 # Memory Changelog
 
+## 2026-09-11 — npm release 0.2.0 (option A adaptation)
+- Published `@islibaodong/dsh-login@0.2.0`: the DSH ≥ 0.1.5-alpha.1 option-A adaptation
+  (no /api takeover; native connection row; remote-guard isolation seam exported from the
+  host bundle) plus the code-review hardening. Version is a **minor** bump per 0.x semver
+  convention (carries breaking changes: requires DSH ≥ 0.1.5-alpha.1, `./connection` /
+  `./connection-client` exports removed).
+- **peerDependencies retargeted** to `>=0.1.5-alpha.1 <0.2.0-0` for all six `@deepseek-ai/dsh-*`
+  peers. The old `>=0.1.1-rc.0 <0.2.0-0` branch silently EXCLUDED `0.1.5-alpha.1` (node-semver
+  prerelease rule: a prerelease version only satisfies a range containing a comparator with the
+  same [major,minor,patch] tuple — PUBLISHING.md §四 pitfall). The new range covers the whole
+  0.1.5 line (alpha.1/alpha.2/rc.1/rc.2/stable): tuple [0,1,5] matches the `>=0.1.5-alpha.1`
+  comparator; future 0.1.6-alpha.x is (correctly) excluded. The floor is honest: option-A code
+  requires the 6-arg serveStatic + string settings namespace + connection.authorizeIndex, none
+  of which exist before 0.1.5-alpha.1.
+- devDependencies left at `^0.1.1-rc.2` deliberately (published tarball excludes devDeps and the
+  lockfile; builds keep `@deepseek-ai/*` external; local node_modules/lockfile already diverged —
+  don't churn the verified-green environment). Known wart: a fresh `npm ci` installs 0.1.1-rc.2
+  types; vitest resolves the real 0.1.5 sources via checkout aliases.
+- `npm pack --dry-run`: 30 files / 121.4 kB (0.1.0 was 23 files / 120.9 kB). LICENSE is in the
+  tarball (head-truncated notice output looks like it's missing — it isn't).
+- npm toolchain side-effect: `npm pack` created an empty `.env` in the repo root; unstaged and
+  gitignored (`/.env`).
+
 ## 2026-09-08 — code-review fixes for the option-A guard (requesting-code-review round)
 - External code review of the option-A adaptation returned "with fixes". Applied the
   in-repo-fixable items:
