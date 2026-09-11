@@ -15,6 +15,17 @@ export interface Config {
   /** Whether the gateway is active (default: true). When false, the plugin
    * registers no routes and the usual frontend fallback serves as usual. */
   enabled: boolean
+  /**
+   * Where an unauthenticated page request is sent (default `/login`, this
+   * plugin's own login page). Set it to an external authorization URL to run
+   * the SPA behind an external identity provider: the gateway 302s there with
+   * the original path preserved in `?return_to=`, and an external plugin is
+   * expected to establish the session (see `ctx.dshLogin`).
+   *
+   * Keeping the default is the emergency path: if the identity provider is
+   * unreachable, set this back to `/login` (and restart) to log in locally.
+   */
+  unauthorizedRedirect: string
   /** Whether dsh-login takes over the `webRuntime` service and the fallback
    * seat from the dsh-web-app `web-runtime` row (default: true). The shipped
    * cordis.patch.yml disables that row; enabling this without disabling it
@@ -77,6 +88,7 @@ export const Config: z<Config> = z.object({
   dataDir: z.string().default(''),
   sessionTtl: z.natural().default(604800),
   enabled: z.boolean().default(true),
+  unauthorizedRedirect: z.string().default('/login'),
   takeOverWebRuntime: z.boolean().default(true),
   trustedHosts: z.array(String).default([]),
   autoTrustHosts: z.boolean().default(true),

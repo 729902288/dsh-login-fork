@@ -10,6 +10,7 @@ var Config = z.object({
   dataDir: z.string().default(""),
   sessionTtl: z.natural().default(604800),
   enabled: z.boolean().default(true),
+  unauthorizedRedirect: z.string().default("/login"),
   takeOverWebRuntime: z.boolean().default(true),
   trustedHosts: z.array(String).default([]),
   autoTrustHosts: z.boolean().default(true),
@@ -599,7 +600,16 @@ function createGatewayHandler(ctx, config, store) {
     }
     const token = extractSessionToken(req.headers.cookie);
     if (token === void 0 || store.verify(token) === void 0) {
-      res.writeHead(302, { Location: "/login" });
+      const target = config.unauthorizedRedirect ?? "";
+      if (target === "" || target === "/login") {
+        res.writeHead(302, { Location: "/login" });
+        res.end();
+        return;
+      }
+      const rawPath2 = new URL(req.url ?? "/", "http://x").pathname;
+      const separator = target.includes("?") ? "&" : "?";
+      const location = `${target}${separator}return_to=${encodeURIComponent(rawPath2)}`;
+      res.writeHead(302, { Location: location });
       res.end();
       return;
     }
@@ -1383,6 +1393,22 @@ function apply(ctx, config) {
   const gatewayConfig = { ...config, distIndex };
   const loginDeps = { users, store, sessionTtl: config.sessionTtl, hosts, autoTrust: config.autoTrustHosts };
   const runtime = config.takeOverWebRuntime ? provideWebRuntime(ctx, config.trustedHosts) : void 0;
+  ctx.provide("dshLogin", {
+    /** Create a session for an externally authenticated user. */
+    createSession: (user, isAdmin) => {
+      const session = store.create(user, isAdmin);
+      return {
+        token: session.token,
+        cookie: buildCookieHeader(session.token, config.sessionTtl),
+        isAdmin: session.isAdmin,
+        expiresAt: session.expiresAt
+      };
+    },
+    /** Live session for a cookie token, or undefined. */
+    verify: (token) => store.verify(token),
+    /** Revoke one session token (logout from an external flow). */
+    revoke: (token) => store.revoke(token)
+  });
   const loginPageRoute = {
     kind: "exact",
     path: "/login",

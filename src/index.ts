@@ -16,6 +16,7 @@ import { createLoginHandler, createLogoutHandler, createLogoutRedirectHandler, c
 import { createAdminRoutes } from './admin-api.ts'
 import { renderLoginPage, renderSetupPage } from './login-page.ts'
 import { provideWebRuntime, resolveDistIndex } from './web-runtime.ts'
+import { buildCookieHeader } from './auth.ts'
 import { resolveDshHome } from './http-json.ts'
 import { deriveCapabilities } from './capabilities.ts'
 
@@ -95,6 +96,29 @@ export function apply(ctx: Context, config: Config): void {
   // from webRuntime too; dsh-login's own fence used to see only the static
   // config list, which is why LAN IPs and frp public hosts needed hand-listing).
   const runtime = config.takeOverWebRuntime ? provideWebRuntime(ctx, config.trustedHosts) : undefined
+
+  // External-identity seam: SessionStore/OwnershipIndex live inside this fiber
+  // (they cannot ride a standalone row), so an external authorization plugin
+  // needs a narrow service to establish a session for a user it authenticated
+  // elsewhere. Only these three operations are exposed — internals stay private.
+  // Pair with `unauthorizedRedirect` (see config.ts) to run the SPA behind an
+  // external identity provider.
+  ;(ctx as unknown as { provide(name: string, value: unknown): void }).provide('dshLogin', {
+    /** Create a session for an externally authenticated user. */
+    createSession: (user: string, isAdmin: boolean) => {
+      const session = store.create(user, isAdmin)
+      return {
+        token: session.token,
+        cookie: buildCookieHeader(session.token, config.sessionTtl),
+        isAdmin: session.isAdmin,
+        expiresAt: session.expiresAt,
+      }
+    },
+    /** Live session for a cookie token, or undefined. */
+    verify: (token: string) => store.verify(token),
+    /** Revoke one session token (logout from an external flow). */
+    revoke: (token: string) => store.revoke(token),
+  })
 
   const loginPageRoute: WebRoute = {
     kind: 'exact',

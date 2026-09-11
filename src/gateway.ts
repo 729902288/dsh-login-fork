@@ -86,7 +86,20 @@ export function createGatewayHandler(
     }
     const token = extractSessionToken(req.headers.cookie)
     if (token === undefined || store.verify(token) === undefined) {
-      res.writeHead(302, { Location: '/login' })
+      // Unauthenticated page request → where the config says. Default is this
+      // plugin's own `/login`; an external authorization URL runs the SPA
+      // behind an identity provider (the original path rides along in
+      // `?return_to=` so the callback can send the browser back here).
+      const target = config.unauthorizedRedirect ?? ''
+      if (target === '' || target === '/login') {
+        res.writeHead(302, { Location: '/login' })
+        res.end()
+        return
+      }
+      const rawPath = new URL(req.url ?? '/', 'http://x').pathname
+      const separator = target.includes('?') ? '&' : '?'
+      const location = `${target}${separator}return_to=${encodeURIComponent(rawPath)}`
+      res.writeHead(302, { Location: location })
       res.end()
       return
     }
