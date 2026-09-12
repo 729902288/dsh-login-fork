@@ -133,17 +133,26 @@ export function apply(ctx: Context, config: Config): void {
 
   const gatewayHandler = createGatewayHandler(ctx, gatewayConfig, store)
 
-  ctx.effect(() => ctx.webServer.register(loginPageRoute), 'dsh-login: /login')
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'exact',
-    path: '/api/auth/setup',
-    handler: createSetupHandler(loginDeps),
-  }), 'dsh-login: /api/auth/setup')
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'exact',
-    path: '/api/auth/login',
-    handler: createLoginHandler(loginDeps),
-  }), 'dsh-login: /api/auth/login')
+  // Local identity surface (`localAuth`). With an external identity center
+  // these three routes ARE the bypass: `/login` renders the first-admin setup
+  // form while the password store is empty, and `POST /api/auth/setup` mints
+  // that first admin for anyone who reaches it. A session store needs none of
+  // them, so they are simply not registered.
+  if (config.localAuth) {
+    ctx.effect(() => ctx.webServer.register(loginPageRoute), 'dsh-login: /login')
+    ctx.effect(() => ctx.webServer.register({
+      kind: 'exact',
+      path: '/api/auth/setup',
+      handler: createSetupHandler(loginDeps),
+    }), 'dsh-login: /api/auth/setup')
+    ctx.effect(() => ctx.webServer.register({
+      kind: 'exact',
+      path: '/api/auth/login',
+      handler: createLoginHandler(loginDeps),
+    }), 'dsh-login: /api/auth/login')
+  } else {
+    ctx.logger.info('[dsh-login] localAuth=false：不注册 /login、/api/auth/setup、/api/auth/login（本地身份已交给身份中心）')
+  }
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
     path: '/api/auth/logout',
@@ -151,12 +160,14 @@ export function apply(ctx: Context, config: Config): void {
   }), 'dsh-login: /api/auth/logout')
   // Link-friendly logout: same revocation, but answers with a redirect so
   // plain <a href="/logout"> entries (e.g. the admin page topbar) work.
+  // Target: the local login page when it exists, otherwise the gateway root
+  // (which bounces an unauthenticated request to the identity center).
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
     path: '/logout',
-    handler: createLogoutRedirectHandler(store),
+    handler: createLogoutRedirectHandler(store, config.localAuth ? '/login' : '/'),
   }), 'dsh-login: /logout')
-  for (const route of createAdminRoutes({ users, store, hosts, defaultWorkspaceSetting, remoteWebUiSetting, remoteWebUiCompat, onRemoteWebUiApply: (enabled) => applyWithRetry(remoteWebUiCompat, enabled, config.remoteWebUiPublicBaseUrl, 3, 50) })) {
+  for (const route of createAdminRoutes({ users, store, hosts, defaultWorkspaceSetting, remoteWebUiSetting, remoteWebUiCompat, localAuth: config.localAuth, onRemoteWebUiApply: (enabled) => applyWithRetry(remoteWebUiCompat, enabled, config.remoteWebUiPublicBaseUrl, 3, 50) })) {
     ctx.effect(() => ctx.webServer.register(route), `dsh-login: ${route.path}`)
   }
   // Boot-time application of the remote-web-ui compatibility toggle. Deferred

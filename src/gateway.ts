@@ -92,6 +92,15 @@ export function createGatewayHandler(
       // `?return_to=` so the callback can send the browser back here).
       const target = config.unauthorizedRedirect ?? ''
       if (target === '' || target === '/login') {
+        // The local login page only exists while `localAuth` is on. Without it
+        // this branch would 302 to a page nobody serves — and because the
+        // fallback owns every unregistered path, that is an endless redirect
+        // loop. Fail visibly instead of looping.
+        if (config.localAuth === false) {
+          res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
+          res.end('未登录，且本地登录已关闭（localAuth=false）——请把 unauthorizedRedirect 指向身份中心。')
+          return
+        }
         res.writeHead(302, { Location: '/login' })
         res.end()
         return

@@ -55,7 +55,7 @@ describe('extractSessionToken', () => {
 describe('buildCookieHeader', () => {
   it('builds a Set-Cookie value with all required attributes', () => {
     const header = buildCookieHeader('mytoken', 3600)
-    expect(header).toBe('dsh_session=mytoken; HttpOnly; SameSite=Strict; Path=/; Max-Age=3600')
+    expect(header).toBe('dsh_session=mytoken; HttpOnly; SameSite=Lax; Path=/; Max-Age=3600')
   })
 
   it('uses the provided TTL in Max-Age', () => {
@@ -67,7 +67,7 @@ describe('buildCookieHeader', () => {
 describe('buildClearCookieHeader', () => {
   it('builds a Set-Cookie that expires immediately', () => {
     const header = buildClearCookieHeader()
-    expect(header).toBe('dsh_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0')
+    expect(header).toBe('dsh_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0')
   })
 })
 

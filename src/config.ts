@@ -16,6 +16,24 @@ export interface Config {
    * registers no routes and the usual frontend fallback serves as usual. */
   enabled: boolean
   /**
+   * Whether this plugin's OWN identity surface is active (default: true).
+   *
+   * Set it to false when authentication is outsourced to an external identity
+   * center (pair it with `unauthorizedRedirect`): the plugin then registers no
+   * local identity at all — no `/login` page, no `POST /api/auth/login`, no
+   * `POST /api/auth/setup` (first-admin creation) and no local user
+   * administration routes (`/api/auth/admin/users*`). What remains is exactly
+   * what a session store needs: the login wall, the cookie session store,
+   * `ctx.dshLogin` (the external-identity seam), `/logout`,
+   * `/api/auth/me` and `/api/auth/capabilities`.
+   *
+   * Why it matters: with an empty password store, `/login` renders the
+   * first-admin SETUP form and `POST /api/auth/setup` is gated only on "no
+   * user exists yet" — an unauthenticated visitor could mint an admin account
+   * and bypass the identity center completely.
+   */
+  localAuth: boolean
+  /**
    * Where an unauthenticated page request is sent (default `/login`, this
    * plugin's own login page). Set it to an external authorization URL to run
    * the SPA behind an external identity provider: the gateway 302s there with
@@ -88,6 +106,7 @@ export const Config: z<Config> = z.object({
   dataDir: z.string().default(''),
   sessionTtl: z.natural().default(604800),
   enabled: z.boolean().default(true),
+  localAuth: z.boolean().default(true),
   unauthorizedRedirect: z.string().default('/login'),
   takeOverWebRuntime: z.boolean().default(true),
   trustedHosts: z.array(String).default([]),

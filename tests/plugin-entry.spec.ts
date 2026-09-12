@@ -20,7 +20,7 @@ afterEach(async () => {
   root = undefined
 })
 
-async function loadComposition(): Promise<{ ctx: Context; port: number; distIndex: string; dataDir: string }> {
+async function loadComposition(extraConfig: readonly string[] = []): Promise<{ ctx: Context; port: number; distIndex: string; dataDir: string }> {
   root = await mkdtemp(join(tmpdir(), 'dsh-plugin-entry-'))
   const dist = join(root, 'dist')
   await mkdir(dist, { recursive: true })
@@ -43,6 +43,7 @@ async function loadComposition(): Promise<{ ctx: Context; port: number; distInde
     `    dataDir: '${dataDir}'`,
     '    sessionTtl: 3600',
     '    enabled: true',
+    ...extraConfig,
     '',
   ].join('\n'))
   context = new Context()
@@ -148,7 +149,7 @@ describe('dsh-login plugin (full composition)', () => {
     const cookie = await setupAdmin(port, 's3cret')
     const me = await request(port, '/api/auth/me', { headers: { Cookie: cookie } })
     expect(me.status).toBe(200)
-    expect(JSON.parse(me.body)).toEqual({ username: 'root', isAdmin: true })
+    expect(JSON.parse(me.body)).toEqual({ username: 'root', isAdmin: true, localAuth: true })
     const anon = await request(port, '/api/auth/me')
     expect(anon.status).toBe(401)
   })
@@ -187,5 +188,60 @@ describe('dsh-login plugin (full composition)', () => {
     expect(anon.status).toBe(405)
     const authed = await request(port, '/api/sessions.list', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: '{}' })
     expect(authed.status).toBe(405)
+  })
+})
+
+/**
+ * `localAuth: false` is the identity-center shape: this plugin is a SESSION
+ * STORE only. These tests pin the security property that motivates the flag —
+ * with an empty password store, the local surface would otherwise render the
+ * first-admin SETUP form and mint that admin for anyone who asks.
+ */
+describe('dsh-login with an external identity center (localAuth: false)', () => {
+  const external: readonly string[] = ["    unauthorizedRedirect: '/sso/start'", '    localAuth: false']
+
+  it('registers no local identity surface', { timeout: 60_000 }, async () => {
+    const { port } = await loadComposition(external)
+
+    // The wall now points at the provider.
+    const root = await request(port, '/')
+    expect(root.status).toBe(302)
+    expect(root.headers.get('location')).toBe('/sso/start?return_to=%2F')
+
+    // /login is not a page any more: it falls through to the wall.
+    const login = await request(port, '/login')
+    expect(login.status).toBe(302)
+    expect(login.headers.get('location')).toBe('/sso/start?return_to=%2Flogin')
+
+    // Both account-minting endpoints are gone (the fallback owns GET/HEAD
+    // only, so a POST is answered 405 instead of creating anything).
+    expect((await postJson(port, '/api/auth/setup', { username: 'evil', password: 'evil' })).status).toBe(405)
+    expect((await postJson(port, '/api/auth/login', { username: 'evil', password: 'evil' })).status).toBe(405)
+    // ...and so is local account administration.
+    expect((await postJson(port, '/api/auth/admin/users', { username: 'evil', password: 'evil' })).status).toBe(405)
+
+    // Logout goes back to the gateway (which bounces to the provider), not to
+    // a /login page that no longer exists.
+    const out = await request(port, '/logout')
+    expect(out.status).toBe(302)
+    expect(out.headers.get('location')).toBe('/')
+  })
+
+  it('still stores a session for an externally authenticated identity', { timeout: 60_000 }, async () => {
+    const { ctx, port } = await loadComposition(external)
+    const seam = (ctx as unknown as { get(name: string): { createSession(user: string, isAdmin: boolean): { token: string; cookie: string } } }).get('dshLogin')
+    const session = seam.createSession('alice@example.com', false)
+    const cookie = `dsh_session=${session.token}`
+
+    // A session created through the seam is a real session: the identity is
+    // reported back, and localAuth: false names the mode. (Serving the SPA
+    // shell itself is covered by the gateway suite — this composition's stub
+    // dist only answers the named routes.)
+    const me = await request(port, '/api/auth/me', { headers: { Cookie: cookie } })
+    expect(me.status).toBe(200)
+    expect(JSON.parse(me.body)).toEqual({ username: 'alice@example.com', isAdmin: false, localAuth: false })
+
+    // Capability discovery stays (it is identity, not local accounts).
+    expect((await request(port, '/api/auth/capabilities', { headers: { Cookie: cookie } })).status).toBe(200)
   })
 })

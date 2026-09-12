@@ -33,6 +33,12 @@ export interface AdminDeps {
   remoteWebUiSetting?: BooleanSetting
   /** Runtime applier of the compat flag to remote-web-ui (returns the outcome). */
   onRemoteWebUiApply?: (enabled: boolean) => Promise<CompatApplyResult>
+  /**
+   * Whether this plugin owns identity (`config.localAuth`, default true).
+   * When false the local account routes (list/create/reset/disable/remove)
+   * are not registered — see `createAdminRoutes`.
+   */
+  localAuth?: boolean
 }
 
 /** Resolve the live session from the request cookie, if any. */
@@ -76,7 +82,7 @@ export function createAdminRoutes(deps: AdminDeps): WebRoute[] {
   const me: WebRoute = { kind: 'exact', path: '/api/auth/me', handler: async (req, res) => {
     const session = requireSession(deps, req)
     if (session === undefined) return sendJson(res, 401, { error: 'authentication required' })
-    return sendJson(res, 200, { username: session.user, isAdmin: session.isAdmin })
+    return sendJson(res, 200, { username: session.user, isAdmin: session.isAdmin, localAuth: deps.localAuth !== false })
   } }
 
   // Per-identity capability surface: tells a client what this identity may
@@ -250,7 +256,14 @@ export function createAdminRoutes(deps: AdminDeps): WebRoute[] {
     return sendJson(res, 200, { ok: true, enabled: remoteSetting.get(), applied })
   } }
 
-  const routes: WebRoute[] = [me, capabilitiesRoute, usersRoute, userPassword, userRemove, userDisable]
+  // Local account administration (create / reset password / disable / remove)
+  // only makes sense while this plugin owns identity. With an external
+  // identity center it is worse than useless: a local password account is a
+  // way into dsh that bypasses the provider entirely, so those routes are not
+  // registered at all. Hosts + settings stay (they are not identity).
+  const routes: WebRoute[] = deps.localAuth === false
+    ? [me, capabilitiesRoute]
+    : [me, capabilitiesRoute, usersRoute, userPassword, userRemove, userDisable]
   if (hostsRoute !== undefined) routes.push(hostsRoute)
   if (settingRoute !== undefined) routes.push(settingRoute)
   if (remoteSettingRoute !== undefined) routes.push(remoteSettingRoute)

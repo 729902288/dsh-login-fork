@@ -100,15 +100,15 @@ export function createLogoutHandler(store: SessionStore): WebRoute['handler'] {
 
 /**
  * Create the GET /logout handler: revoke the session (if present), clear
- * the cookie, and redirect to /login. A convenience twin of the POST route
+ * the cookie, and redirect to `location` (default `/login`). A convenience twin of the POST route
  * so a plain link can log the user out.
  */
-export function createLogoutRedirectHandler(store: SessionStore): WebRoute['handler'] {
+export function createLogoutRedirectHandler(store: SessionStore, location = '/login'): WebRoute['handler'] {
   return async (req: IncomingMessage, res: ServerResponse) => {
     const token = extractSessionToken(req.headers.cookie)
     if (token !== undefined) store.revoke(token)
     res.setHeader('Set-Cookie', buildClearCookieHeader())
-    res.writeHead(302, { Location: '/login' })
+    res.writeHead(302, { Location: location })
     res.end()
   }
 }

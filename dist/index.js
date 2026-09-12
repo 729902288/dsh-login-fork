@@ -10,6 +10,7 @@ var Config = z.object({
   dataDir: z.string().default(""),
   sessionTtl: z.natural().default(604800),
   enabled: z.boolean().default(true),
+  localAuth: z.boolean().default(true),
   unauthorizedRedirect: z.string().default("/login"),
   takeOverWebRuntime: z.boolean().default(true),
   trustedHosts: z.array(String).default([]),
@@ -602,6 +603,11 @@ function createGatewayHandler(ctx, config, store) {
     if (token === void 0 || store.verify(token) === void 0) {
       const target = config.unauthorizedRedirect ?? "";
       if (target === "" || target === "/login") {
+        if (config.localAuth === false) {
+          res.writeHead(401, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+          res.end("\u672A\u767B\u5F55\uFF0C\u4E14\u672C\u5730\u767B\u5F55\u5DF2\u5173\u95ED\uFF08localAuth=false\uFF09\u2014\u2014\u8BF7\u628A unauthorizedRedirect \u6307\u5411\u8EAB\u4EFD\u4E2D\u5FC3\u3002");
+          return;
+        }
         res.writeHead(302, { Location: "/login" });
         res.end();
         return;
@@ -703,12 +709,12 @@ function createLogoutHandler(store) {
     res.end();
   };
 }
-function createLogoutRedirectHandler(store) {
+function createLogoutRedirectHandler(store, location = "/login") {
   return async (req, res) => {
     const token = extractSessionToken(req.headers.cookie);
     if (token !== void 0) store.revoke(token);
     res.setHeader("Set-Cookie", buildClearCookieHeader());
-    res.writeHead(302, { Location: "/login" });
+    res.writeHead(302, { Location: location });
     res.end();
   };
 }
@@ -884,7 +890,7 @@ function createAdminRoutes(deps) {
   const me = { kind: "exact", path: "/api/auth/me", handler: async (req, res) => {
     const session = requireSession(deps, req);
     if (session === void 0) return sendJson(res, 401, { error: "authentication required" });
-    return sendJson(res, 200, { username: session.user, isAdmin: session.isAdmin });
+    return sendJson(res, 200, { username: session.user, isAdmin: session.isAdmin, localAuth: deps.localAuth !== false });
   } };
   const capabilitiesRoute = { kind: "exact", path: "/api/auth/capabilities", handler: async (req, res) => {
     const session = requireSession(deps, req);
@@ -1027,7 +1033,7 @@ function createAdminRoutes(deps) {
     if (deps.onRemoteWebUiApply !== void 0) applied = await deps.onRemoteWebUiApply(body.enabled);
     return sendJson(res, 200, { ok: true, enabled: remoteSetting.get(), applied });
   } };
-  const routes = [me, capabilitiesRoute, usersRoute, userPassword, userRemove, userDisable];
+  const routes = deps.localAuth === false ? [me, capabilitiesRoute] : [me, capabilitiesRoute, usersRoute, userPassword, userRemove, userDisable];
   if (hostsRoute !== void 0) routes.push(hostsRoute);
   if (settingRoute !== void 0) routes.push(settingRoute);
   if (remoteSettingRoute !== void 0) routes.push(remoteSettingRoute);
@@ -1419,17 +1425,21 @@ function apply(ctx, config) {
     }
   };
   const gatewayHandler = createGatewayHandler(ctx, gatewayConfig, store);
-  ctx.effect(() => ctx.webServer.register(loginPageRoute), "dsh-login: /login");
-  ctx.effect(() => ctx.webServer.register({
-    kind: "exact",
-    path: "/api/auth/setup",
-    handler: createSetupHandler(loginDeps)
-  }), "dsh-login: /api/auth/setup");
-  ctx.effect(() => ctx.webServer.register({
-    kind: "exact",
-    path: "/api/auth/login",
-    handler: createLoginHandler(loginDeps)
-  }), "dsh-login: /api/auth/login");
+  if (config.localAuth) {
+    ctx.effect(() => ctx.webServer.register(loginPageRoute), "dsh-login: /login");
+    ctx.effect(() => ctx.webServer.register({
+      kind: "exact",
+      path: "/api/auth/setup",
+      handler: createSetupHandler(loginDeps)
+    }), "dsh-login: /api/auth/setup");
+    ctx.effect(() => ctx.webServer.register({
+      kind: "exact",
+      path: "/api/auth/login",
+      handler: createLoginHandler(loginDeps)
+    }), "dsh-login: /api/auth/login");
+  } else {
+    ctx.logger.info("[dsh-login] localAuth=false\uFF1A\u4E0D\u6CE8\u518C /login\u3001/api/auth/setup\u3001/api/auth/login\uFF08\u672C\u5730\u8EAB\u4EFD\u5DF2\u4EA4\u7ED9\u8EAB\u4EFD\u4E2D\u5FC3\uFF09");
+  }
   ctx.effect(() => ctx.webServer.register({
     kind: "exact",
     path: "/api/auth/logout",
@@ -1438,9 +1448,9 @@ function apply(ctx, config) {
   ctx.effect(() => ctx.webServer.register({
     kind: "exact",
     path: "/logout",
-    handler: createLogoutRedirectHandler(store)
+    handler: createLogoutRedirectHandler(store, config.localAuth ? "/login" : "/")
   }), "dsh-login: /logout");
-  for (const route of createAdminRoutes({ users, store, hosts, defaultWorkspaceSetting, remoteWebUiSetting, remoteWebUiCompat, onRemoteWebUiApply: (enabled) => applyWithRetry(remoteWebUiCompat, enabled, config.remoteWebUiPublicBaseUrl, 3, 50) })) {
+  for (const route of createAdminRoutes({ users, store, hosts, defaultWorkspaceSetting, remoteWebUiSetting, remoteWebUiCompat, localAuth: config.localAuth, onRemoteWebUiApply: (enabled) => applyWithRetry(remoteWebUiCompat, enabled, config.remoteWebUiPublicBaseUrl, 3, 50) })) {
     ctx.effect(() => ctx.webServer.register(route), `dsh-login: ${route.path}`);
   }
   const bootCompat = applyWithRetry(remoteWebUiCompat, remoteWebUiSetting.get(), config.remoteWebUiPublicBaseUrl);

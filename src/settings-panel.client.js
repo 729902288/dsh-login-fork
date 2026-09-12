@@ -262,9 +262,12 @@ function (require) {
     }
   }
 
-  function logout() {
+  function logout(target) {
     void fetch('/api/auth/logout', { method: 'POST' }).catch(function () {}).finally(function () {
-      window.location.assign('/login')
+      // With an identity center there is no local login page: '/' re-enters
+      // the gateway, which then sends the (now logged-out) visitor to the
+      // provider. Only a localAuth deployment has /login to land on.
+      window.location.assign(target)
     })
   }
 
@@ -286,7 +289,7 @@ function (require) {
       h('div', { className: 'dshlu-account-id' },
         h('span', { className: 'dshlu-account-name' }, me.username),
         h('span', { className: 'dshlu-account-role' }, t(me.isAdmin ? 'role.admin' : 'role.user'))),
-      h(Button, { variant: 'outline', size: 'sm', onClick: logout }, t('account.logout')))
+      h(Button, { variant: 'outline', size: 'sm', onClick: function () { logout(me.localAuth === false ? '/' : '/login') } }, t('account.logout')))
   }
 
   /** Ordinary-user section: identity + logout. */
@@ -674,7 +677,10 @@ function (require) {
         // gateway redirects first); a failed probe registers nothing.
         void fetchMe().then(function (me) {
           if (me === undefined) return
-          var isAdmin = me.isAdmin === true
+          // `localAuth: false` means identity lives in an external center: the
+          // local user table is then meaningless (and its create/reset routes
+          // are not even registered), so every user gets the account section.
+          var isAdmin = me.isAdmin === true && me.localAuth !== false
           sub.slots.inject('settings.section', function () {
             return sub.slots.register({
               name: 'settings.section',
