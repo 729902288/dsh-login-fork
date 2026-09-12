@@ -28,6 +28,25 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { dirname } from "node:path";
 var SAVE_DEBOUNCE_MS = 200;
+function readIdentity(raw) {
+  if (raw === null || typeof raw !== "object") return void 0;
+  const r = raw;
+  if (typeof r.id !== "string" || r.id === "") return void 0;
+  const identity = { id: r.id };
+  if (typeof r.email === "string" && r.email !== "") identity.email = r.email;
+  if (typeof r.name === "string" && r.name !== "") identity.name = r.name;
+  if (Array.isArray(r.roles)) {
+    const roles = [];
+    for (const entry of r.roles) {
+      if (entry === null || typeof entry !== "object") continue;
+      const role = entry;
+      if (typeof role.name !== "string" || role.name === "") continue;
+      roles.push(typeof role.app === "string" && role.app !== "" ? { name: role.name, app: role.app } : { name: role.name });
+    }
+    identity.roles = roles;
+  }
+  return identity;
+}
 var SessionStore = class {
   constructor(ttlSeconds, filePath) {
     this.ttlSeconds = ttlSeconds;
@@ -40,10 +59,11 @@ var SessionStore = class {
   saveTimer;
   saving = Promise.resolve();
   /** Generate a 32-byte random token for `user` with its admin flag. */
-  create(user, isAdmin) {
+  create(user, isAdmin, identity) {
     const token = randomBytes(32).toString("hex");
     const createdAt = Date.now();
     const session = { token, user, isAdmin, createdAt, expiresAt: createdAt + this.ttlSeconds * 1e3 };
+    if (identity !== void 0) session.identity = identity;
     this.store.set(token, session);
     this.scheduleSave();
     return session;
@@ -131,7 +151,15 @@ var SessionStore = class {
         if (typeof s.token !== "string" || typeof s.user !== "string" || typeof s.isAdmin !== "boolean") continue;
         if (typeof s.createdAt !== "number" || typeof s.expiresAt !== "number") continue;
         if (now > s.expiresAt) continue;
-        this.store.set(s.token, { token: s.token, user: s.user, isAdmin: s.isAdmin, createdAt: s.createdAt, expiresAt: s.expiresAt });
+        const identity = readIdentity(s.identity);
+        this.store.set(s.token, {
+          token: s.token,
+          user: s.user,
+          isAdmin: s.isAdmin,
+          createdAt: s.createdAt,
+          expiresAt: s.expiresAt,
+          ...identity === void 0 ? {} : { identity }
+        });
       }
     } catch {
     }
@@ -890,7 +918,15 @@ function createAdminRoutes(deps) {
   const me = { kind: "exact", path: "/api/auth/me", handler: async (req, res) => {
     const session = requireSession(deps, req);
     if (session === void 0) return sendJson(res, 401, { error: "authentication required" });
-    return sendJson(res, 200, { username: session.user, isAdmin: session.isAdmin, localAuth: deps.localAuth !== false });
+    return sendJson(res, 200, {
+      userId: session.identity?.id ?? session.user,
+      username: session.user,
+      email: session.identity?.email ?? "",
+      name: session.identity?.name ?? "",
+      roles: session.identity?.roles ?? [],
+      isAdmin: session.isAdmin,
+      localAuth: deps.localAuth !== false
+    });
   } };
   const capabilitiesRoute = { kind: "exact", path: "/api/auth/capabilities", handler: async (req, res) => {
     const session = requireSession(deps, req);
@@ -1400,9 +1436,15 @@ function apply(ctx, config) {
   const loginDeps = { users, store, sessionTtl: config.sessionTtl, hosts, autoTrust: config.autoTrustHosts };
   const runtime = config.takeOverWebRuntime ? provideWebRuntime(ctx, config.trustedHosts) : void 0;
   ctx.provide("dshLogin", {
-    /** Create a session for an externally authenticated user. */
-    createSession: (user, isAdmin) => {
-      const session = store.create(user, isAdmin);
+    /**
+     * Create a session for an externally authenticated user.
+     *
+     * `user` is the display label; `identity` is the provider's assertion
+     * (subject id + email/name/roles) and is what later steps use to answer
+     * "who is this, really" — see SessionIdentity.
+     */
+    createSession: (user, isAdmin, identity) => {
+      const session = store.create(user, isAdmin, identity);
       return {
         token: session.token,
         cookie: buildCookieHeader(session.token, config.sessionTtl),

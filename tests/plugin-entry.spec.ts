@@ -149,7 +149,7 @@ describe('dsh-login plugin (full composition)', () => {
     const cookie = await setupAdmin(port, 's3cret')
     const me = await request(port, '/api/auth/me', { headers: { Cookie: cookie } })
     expect(me.status).toBe(200)
-    expect(JSON.parse(me.body)).toEqual({ username: 'root', isAdmin: true, localAuth: true })
+    expect(JSON.parse(me.body)).toEqual({ userId: 'root', username: 'root', email: '', name: '', roles: [], isAdmin: true, localAuth: true })
     const anon = await request(port, '/api/auth/me')
     expect(anon.status).toBe(401)
   })
@@ -229,19 +229,41 @@ describe('dsh-login with an external identity center (localAuth: false)', () => 
 
   it('still stores a session for an externally authenticated identity', { timeout: 60_000 }, async () => {
     const { ctx, port } = await loadComposition(external)
-    const seam = (ctx as unknown as { get(name: string): { createSession(user: string, isAdmin: boolean): { token: string; cookie: string } } }).get('dshLogin')
-    const session = seam.createSession('alice@example.com', false)
+    const seam = (ctx as unknown as { get(name: string): { createSession(user: string, isAdmin: boolean, identity?: unknown): { token: string; cookie: string } } }).get('dshLogin')
+    const session = seam.createSession('alice@example.com', false, {
+      id: 'base-uuid-1',
+      email: 'alice@example.com',
+      name: '爱丽丝',
+      roles: [{ name: 'admin', app: 'dsh' }, { name: '采购部', app: 'global' }],
+    })
     const cookie = `dsh_session=${session.token}`
 
-    // A session created through the seam is a real session: the identity is
-    // reported back, and localAuth: false names the mode. (Serving the SPA
-    // shell itself is covered by the gateway suite — this composition's stub
-    // dist only answers the named routes.)
+    // A session created through the seam is a real session, and the identity
+    // the provider asserted comes back intact: the base subject id is the
+    // primary key, email/name are display labels. (Serving the SPA shell
+    // itself is covered by the gateway suite — this composition's stub dist
+    // only answers the named routes.)
     const me = await request(port, '/api/auth/me', { headers: { Cookie: cookie } })
     expect(me.status).toBe(200)
-    expect(JSON.parse(me.body)).toEqual({ username: 'alice@example.com', isAdmin: false, localAuth: false })
+    expect(JSON.parse(me.body)).toEqual({
+      userId: 'base-uuid-1',
+      username: 'alice@example.com',
+      email: 'alice@example.com',
+      name: '爱丽丝',
+      roles: [{ name: 'admin', app: 'dsh' }, { name: '采购部', app: 'global' }],
+      isAdmin: false,
+      localAuth: false,
+    })
 
     // Capability discovery stays (it is identity, not local accounts).
     expect((await request(port, '/api/auth/capabilities', { headers: { Cookie: cookie } })).status).toBe(200)
+
+    // A session created without an identity (the pre-existing shape) still
+    // reads back: userId falls back to the display user.
+    const legacy = seam.createSession('bob@example.com', false)
+    const legacyMe = await request(port, '/api/auth/me', { headers: { Cookie: `dsh_session=${legacy.token}` } })
+    expect(JSON.parse(legacyMe.body)).toEqual({
+      userId: 'bob@example.com', username: 'bob@example.com', email: '', name: '', roles: [], isAdmin: false, localAuth: false,
+    })
   })
 })

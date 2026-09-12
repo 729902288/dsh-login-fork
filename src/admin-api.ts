@@ -79,10 +79,21 @@ function requireAdmin(deps: AdminDeps, req: IncomingMessage, res: ServerResponse
 }
 
 export function createAdminRoutes(deps: AdminDeps): WebRoute[] {
+  // `/api/auth/me` is the identity read-back for the SPA: the external subject
+  // id is the primary key, `username`/`name` are display labels, and roles are
+  // whatever the identity provider asserted (empty for a local session).
   const me: WebRoute = { kind: 'exact', path: '/api/auth/me', handler: async (req, res) => {
     const session = requireSession(deps, req)
     if (session === undefined) return sendJson(res, 401, { error: 'authentication required' })
-    return sendJson(res, 200, { username: session.user, isAdmin: session.isAdmin, localAuth: deps.localAuth !== false })
+    return sendJson(res, 200, {
+      userId: session.identity?.id ?? session.user,
+      username: session.user,
+      email: session.identity?.email ?? '',
+      name: session.identity?.name ?? '',
+      roles: session.identity?.roles ?? [],
+      isAdmin: session.isAdmin,
+      localAuth: deps.localAuth !== false,
+    })
   } }
 
   // Per-identity capability surface: tells a client what this identity may

@@ -113,7 +113,7 @@ describe('GET /api/auth/me', () => {
     const cookie = await loginCookie(port, 'root', 'rootpw')
     const res = await req(port, 'GET', '/api/auth/me', undefined, cookie)
     expect(res.status).toBe(200)
-    expect(res.json).toEqual({ username: 'root', isAdmin: true, localAuth: true })
+    expect(res.json).toEqual({ userId: 'root', username: 'root', email: '', name: '', roles: [], isAdmin: true, localAuth: true })
   })
 
   it('returns 401 anonymously', { timeout: 60_000 }, async () => {

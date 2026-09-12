@@ -3,17 +3,66 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
+/**
+ * Who a session belongs to, when the identity was established elsewhere (an
+ * external identity center / SSO provider).
+ *
+ * This plugin never authenticates anyone in that mode — it only *stores* the
+ * identity the provider asserted. `id` is the provider's subject and is the
+ * primary key (an email is a display label that can change; the subject
+ * cannot). Everything else is carried along for display and for downstream
+ * authorization decisions.
+ */
+export interface SessionIdentity {
+  /** Provider subject id — the stable primary key for this person. */
+  id: string
+  /** Display/contact email, if the provider sent one. */
+  email?: string
+  /** Human-readable name, if the provider sent one. */
+  name?: string
+  /** Roles as asserted by the provider (`app` = which application they belong to). */
+  roles?: Array<{ name: string; app?: string }>
+}
+
 /** One created login session: token, owning user, and expiry timestamps. */
 export interface Session {
   token: string
+  /** Display label for the session owner (an email, for an SSO session). */
   user: string
   isAdmin: boolean
   createdAt: number
   expiresAt: number
+  /** Present when the identity came from an external provider (SSO). */
+  identity?: SessionIdentity
 }
 
 /** Debounce window for coalescing disk writes (ms), mirroring the sidecar files. */
 const SAVE_DEBOUNCE_MS = 200
+
+/**
+ * Validate an identity blob read back from disk. Fail-closed: a malformed
+ * record yields no identity (the session stays valid, it just carries no
+ * external subject) — never a half-trusted id.
+ */
+function readIdentity(raw: unknown): SessionIdentity | undefined {
+  if (raw === null || typeof raw !== 'object') return undefined
+  const r = raw as Partial<SessionIdentity>
+  if (typeof r.id !== 'string' || r.id === '') return undefined
+  const identity: SessionIdentity = { id: r.id }
+  if (typeof r.email === 'string' && r.email !== '') identity.email = r.email
+  if (typeof r.name === 'string' && r.name !== '') identity.name = r.name
+  if (Array.isArray(r.roles)) {
+    const roles: Array<{ name: string; app?: string }> = []
+    for (const entry of r.roles) {
+      if (entry === null || typeof entry !== 'object') continue
+      const role = entry as { name?: unknown; app?: unknown }
+      if (typeof role.name !== 'string' || role.name === '') continue
+      roles.push(typeof role.app === 'string' && role.app !== '' ? { name: role.name, app: role.app } : { name: role.name })
+    }
+    identity.roles = roles
+  }
+  return identity
+}
 
 /**
  * Session token store with automatic TTL expiry.
@@ -40,10 +89,11 @@ export class SessionStore {
   }
 
   /** Generate a 32-byte random token for `user` with its admin flag. */
-  create(user: string, isAdmin: boolean): Session {
+  create(user: string, isAdmin: boolean, identity?: SessionIdentity): Session {
     const token = randomBytes(32).toString('hex')
     const createdAt = Date.now()
     const session: Session = { token, user, isAdmin, createdAt, expiresAt: createdAt + this.ttlSeconds * 1000 }
+    if (identity !== undefined) session.identity = identity
     this.store.set(token, session)
     this.scheduleSave()
     return session
@@ -138,7 +188,11 @@ export class SessionStore {
         if (typeof s.token !== 'string' || typeof s.user !== 'string' || typeof s.isAdmin !== 'boolean') continue
         if (typeof s.createdAt !== 'number' || typeof s.expiresAt !== 'number') continue
         if (now > s.expiresAt) continue // already expired: drop on load
-        this.store.set(s.token, { token: s.token, user: s.user, isAdmin: s.isAdmin, createdAt: s.createdAt, expiresAt: s.expiresAt })
+        const identity = readIdentity(s.identity)
+        this.store.set(s.token, {
+          token: s.token, user: s.user, isAdmin: s.isAdmin, createdAt: s.createdAt, expiresAt: s.expiresAt,
+          ...(identity === undefined ? {} : { identity }),
+        })
       }
     } catch { /* absent or corrupt: start empty (fail-closed) */ }
   }

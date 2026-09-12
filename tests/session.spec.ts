@@ -174,3 +174,54 @@ describe('SessionStore persistence', () => {
     expect(store.verify(s.token)).toBeDefined()
   })
 })
+
+describe('SessionStore identity (external identity center)', () => {
+  it('carries the provider identity next to the display user', () => {
+    const store = new SessionStore(3600)
+    const session = store.create('alice@example.com', false, {
+      id: 'base-1',
+      email: 'alice@example.com',
+      name: '爱丽丝',
+      roles: [{ name: 'admin', app: 'dsh' }, { name: '采购部', app: 'global' }],
+    })
+    const live = store.verify(session.token)
+    expect(live?.user).toBe('alice@example.com')
+    expect(live?.identity?.id).toBe('base-1')
+    expect(live?.identity?.name).toBe('爱丽丝')
+    expect(live?.identity?.roles).toEqual([{ name: 'admin', app: 'dsh' }, { name: '采购部', app: 'global' }])
+  })
+
+  it('leaves identity undefined for a local session', () => {
+    const store = new SessionStore(3600)
+    expect(store.verify(store.create('alice', false).token)?.identity).toBeUndefined()
+  })
+
+  it('persists the identity across a restart', async () => {
+    const path = tmpFile()
+    const first = new SessionStore(3600, path)
+    const session = first.create('alice@example.com', true, {
+      id: 'base-1', email: 'alice@example.com', roles: [{ name: 'admin', app: 'dsh' }],
+    })
+    await first.flush()
+    const restored = new SessionStore(3600, path).verify(session.token)
+    expect(restored?.isAdmin).toBe(true)
+    expect(restored?.identity).toEqual({ id: 'base-1', email: 'alice@example.com', roles: [{ name: 'admin', app: 'dsh' }] })
+  })
+
+  it('drops a malformed persisted identity instead of trusting it', async () => {
+    const path = tmpFile()
+    const now = Date.now()
+    writeFileSync(path, JSON.stringify([
+      { token: 'tok', user: 'alice', isAdmin: false, createdAt: now, expiresAt: now + 60_000, identity: { email: 'alice@example.com' } },
+      { token: 'tok2', user: 'bob', isAdmin: false, createdAt: now, expiresAt: now + 60_000, identity: { id: 'base-2', roles: [{ app: 'dsh' }, { name: '采购部', app: 'global' }] } },
+    ]), 'utf8')
+
+    const store = new SessionStore(3600, path)
+    // No `id` → no identity at all (the session itself stays usable).
+    const first = store.verify('tok')
+    expect(first).toBeDefined()
+    expect(first?.identity).toBeUndefined()
+    // A role without a name is dropped; the well-formed one survives.
+    expect(store.verify('tok2')?.identity).toEqual({ id: 'base-2', roles: [{ name: '采购部', app: 'global' }] })
+  })
+})

@@ -4,7 +4,7 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { Config } from './config.ts'
 import { Config as ConfigSchema } from './config.ts'
-import { SessionStore } from './session.ts'
+import { SessionStore, type SessionIdentity } from './session.ts'
 import { UserStore } from './users.ts'
 import { OwnershipIndex } from './ownership.ts'
 import { TrustedHosts } from './hosts.ts'
@@ -104,9 +104,15 @@ export function apply(ctx: Context, config: Config): void {
   // Pair with `unauthorizedRedirect` (see config.ts) to run the SPA behind an
   // external identity provider.
   ;(ctx as unknown as { provide(name: string, value: unknown): void }).provide('dshLogin', {
-    /** Create a session for an externally authenticated user. */
-    createSession: (user: string, isAdmin: boolean) => {
-      const session = store.create(user, isAdmin)
+    /**
+     * Create a session for an externally authenticated user.
+     *
+     * `user` is the display label; `identity` is the provider's assertion
+     * (subject id + email/name/roles) and is what later steps use to answer
+     * "who is this, really" — see SessionIdentity.
+     */
+    createSession: (user: string, isAdmin: boolean, identity?: SessionIdentity) => {
+      const session = store.create(user, isAdmin, identity)
       return {
         token: session.token,
         cookie: buildCookieHeader(session.token, config.sessionTtl),
