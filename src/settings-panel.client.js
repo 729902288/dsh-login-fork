@@ -277,9 +277,6 @@ function (require) {
   function logout(target) {
     // 点了就跳，不等请求。
     //
-    // 目标地址（服务端下发的 logoutUrl）在**前门**上；那一次导航本身就会把账清干净
-    // （清前门会话、替容器登出、送身份中心登出）。这里再补一个后台请求，是为了从容器
-    // 的角度看"会话确实被吊销了"；用 keepalive 让它即使在导航之后也能发出去。
     // 老写法是 fetch().finally(() => location.assign(...)) —— 要等请求回来才跳，会卡一下。
     void fetch('/api/auth/logout', { method: 'POST', keepalive: true }).catch(function () {})
     window.location.assign(target)
