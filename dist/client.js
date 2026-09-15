@@ -1,22 +1,4 @@
-;window.__ModuleLoader__.load({ id: "@islibaodong/dsh-login", factory: function (require) { return (/**
- * dsh-login settings-panel client half — plain browser JavaScript.
- *
- * This file is NOT transformed: scripts/build-client.mjs wraps it verbatim
- * into dist/client.js as the plugin's dsh.client registration (a module-loader
- * factory closure). Under option A (DSH ≥ 0.1.5-alpha.1) the plugin does NOT
- * provide the `connection` service — the shipped `connection` row owns /api —
- * so this half is a standalone settings-section contribution over the native
- * `slots` + `locale`: it registers 用户管理 for admins (user table +
- * create/reset/disable/remove + logout) or 账户 for ordinary users (identity +
- * logout).
- *
- * All styling runs through the framework's `--dsw-alias-*` theme tokens, so
- * the panel follows the app skin (light/dark) automatically. React and the
- * UI primitives come from the platform module-table seeds every bundle may
- * require; no cross-plugin value imports and no hard inject that could
- * deadlock (this fiber depends only on `slots`/`locale`, resolved by
- * ctx.inject when they exist).
- */
+;window.__ModuleLoader__.load({ id: "@islibaodong/dsh-login", factory: function (require) { return (
 function (require) {
   var React = require('react')
   var useState = React.useState
@@ -38,14 +20,7 @@ function (require) {
 .dshlu-notice { margin: 0; font-size: 12px; line-height: 18px; min-height: 18px; }
 .dshlu-notice--error { color: var(--dsw-alias-state-error-primary); }
 .dshlu-notice--success { color: var(--dsw-alias-state-success-primary); }
-/* ONE shared grid for the whole table: .dshlu-table owns the columns and
-   the header/rows are subgrids spanning all of them, so every track —
-   including the content-sized 状态/操作 ones — resolves once for the whole
-   table. (Per-row grids were the bug: max-content tracks sized to each
-   container's own content, so the narrow header labels got ~30px tracks
-   while the rows' buttons got ~250px — header and body fully misaligned.)
-   Head and row share identical side insets (14px padding + 1px border)
-   so the subgrid tracks also start at the same origin pixel. */
+
 .dshlu-table { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) max-content max-content; column-gap: 8px; row-gap: 8px; align-items: center; margin: 4px 0 0; }
 .dshlu-head, .dshlu-row { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; align-items: center; }
 .dshlu-head { padding: 0 14px; border: 1px solid transparent; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-caption); }
@@ -58,8 +33,7 @@ function (require) {
 .dshlu-cell--login { min-width: 0; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-caption); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dshlu-cell--status { display: flex; align-items: center; flex-wrap: nowrap; gap: 4px; }
 .dshlu-cell--actions { display: flex; flex-wrap: nowrap; gap: 6px; justify-content: flex-end; white-space: nowrap; }
-/* Narrow viewports drop the last-login column (header cell + row cells)
-   instead of squeezing; subgridded rows follow the parent template. */
+
 @media (max-width: 620px) {
   .dshlu-table { grid-template-columns: minmax(0, 1fr) max-content max-content; }
   .dshlu-head > :nth-child(2), .dshlu-row > .dshlu-cell--login { display: none; }
@@ -240,7 +214,7 @@ function (require) {
     var res = await fetch(path, init)
     var text = await res.text()
     var data = null
-    try { data = text.length > 0 ? JSON.parse(text) : null } catch (err) { /* not JSON */ }
+    try { data = text.length > 0 ? JSON.parse(text) : null } catch (err) {  }
     if (!res.ok) {
       var detail = data !== null && typeof data.error === 'string' && data.error.length > 0 ? data.error : ('HTTP ' + String(res.status))
       throw new Error(detail)
@@ -262,13 +236,7 @@ function (require) {
     }
   }
 
-  /**
-   * Where to go after logging out.
-   *
-   * `me.logoutUrl` is what the server was configured with (an identity
-   * center's logout endpoint) and wins; otherwise keep the legacy targets —
-   * `/login` for a local-auth deployment, `/` for an external identity center.
-   */
+  
   function logoutTarget(me) {
     if (me && typeof me.logoutUrl === 'string' && me.logoutUrl !== '') return me.logoutUrl
     return me && me.localAuth === false ? '/' : '/login'
@@ -303,7 +271,7 @@ function (require) {
       h(Button, { variant: 'outline', size: 'sm', onClick: function () { logout(logoutTarget(me)) } }, t('account.logout')))
   }
 
-  /** Ordinary-user section: identity + logout. */
+  
   function AccountPanel(props) {
     var t = props.t
     return h('div', { className: 'dshlu-section' },
@@ -312,7 +280,7 @@ function (require) {
       AccountBar(t, props.me))
   }
 
-  /** Admin section: user table + create card + dialogs + account bar. */
+  
   function UsersPanel(props) {
     var t = props.t
     var me = props.me
