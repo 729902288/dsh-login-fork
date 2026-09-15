@@ -44,6 +44,19 @@ export interface Config {
    * unreachable, set this back to `/login` (and restart) to log in locally.
    */
   unauthorizedRedirect: string
+  /**
+   * Where the browser goes after "log out" (default `''` = old behaviour:
+   * `/login` with local auth, `/` with an identity center).
+   *
+   * Why this exists: with an identity center the session that actually matters
+   * lives on the provider's domain, and only the provider can clear it. Our own
+   * `/api/auth/logout` clears this process's cookie only — so a plain bounce to
+   * `/` re-enters the gateway, the gateway starts SSO again, and the still-alive
+   * provider session logs the person right back in (symptom: "click log out,
+   * refresh, and you are inside again"). Pointing this at the provider's logout
+   * endpoint makes one navigation land on the login page.
+   */
+  logoutUrl: string
   /** Whether dsh-login takes over the `webRuntime` service and the fallback
    * seat from the dsh-web-app `web-runtime` row (default: true). The shipped
    * cordis.patch.yml disables that row; enabling this without disabling it
@@ -108,6 +121,7 @@ export const Config: z<Config> = z.object({
   enabled: z.boolean().default(true),
   localAuth: z.boolean().default(true),
   unauthorizedRedirect: z.string().default('/login'),
+  logoutUrl: z.string().default(''),
   takeOverWebRuntime: z.boolean().default(true),
   trustedHosts: z.array(String).default([]),
   autoTrustHosts: z.boolean().default(true),

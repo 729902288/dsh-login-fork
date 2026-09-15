@@ -12,6 +12,7 @@ var Config = z.object({
   enabled: z.boolean().default(true),
   localAuth: z.boolean().default(true),
   unauthorizedRedirect: z.string().default("/login"),
+  logoutUrl: z.string().default(""),
   takeOverWebRuntime: z.boolean().default(true),
   trustedHosts: z.array(String).default([]),
   autoTrustHosts: z.boolean().default(true),
@@ -925,7 +926,9 @@ function createAdminRoutes(deps) {
       name: session.identity?.name ?? "",
       roles: session.identity?.roles ?? [],
       isAdmin: session.isAdmin,
-      localAuth: deps.localAuth !== false
+      localAuth: deps.localAuth !== false,
+      /** Where the client should navigate after logging out ('' = legacy behaviour). */
+      logoutUrl: deps.logoutUrl ?? ""
     });
   } };
   const capabilitiesRoute = { kind: "exact", path: "/api/auth/capabilities", handler: async (req, res) => {
@@ -1490,9 +1493,9 @@ function apply(ctx, config) {
   ctx.effect(() => ctx.webServer.register({
     kind: "exact",
     path: "/logout",
-    handler: createLogoutRedirectHandler(store, config.localAuth ? "/login" : "/")
+    handler: createLogoutRedirectHandler(store, config.logoutUrl || (config.localAuth ? "/login" : "/"))
   }), "dsh-login: /logout");
-  for (const route of createAdminRoutes({ users, store, hosts, defaultWorkspaceSetting, remoteWebUiSetting, remoteWebUiCompat, localAuth: config.localAuth, onRemoteWebUiApply: (enabled) => applyWithRetry(remoteWebUiCompat, enabled, config.remoteWebUiPublicBaseUrl, 3, 50) })) {
+  for (const route of createAdminRoutes({ users, store, hosts, defaultWorkspaceSetting, remoteWebUiSetting, remoteWebUiCompat, localAuth: config.localAuth, logoutUrl: config.logoutUrl, onRemoteWebUiApply: (enabled) => applyWithRetry(remoteWebUiCompat, enabled, config.remoteWebUiPublicBaseUrl, 3, 50) })) {
     ctx.effect(() => ctx.webServer.register(route), `dsh-login: ${route.path}`);
   }
   const bootCompat = applyWithRetry(remoteWebUiCompat, remoteWebUiSetting.get(), config.remoteWebUiPublicBaseUrl);

@@ -149,7 +149,7 @@ describe('dsh-login plugin (full composition)', () => {
     const cookie = await setupAdmin(port, 's3cret')
     const me = await request(port, '/api/auth/me', { headers: { Cookie: cookie } })
     expect(me.status).toBe(200)
-    expect(JSON.parse(me.body)).toEqual({ userId: 'root', username: 'root', email: '', name: '', roles: [], isAdmin: true, localAuth: true })
+    expect(JSON.parse(me.body)).toEqual({ userId: 'root', username: 'root', email: '', name: '', roles: [], isAdmin: true, localAuth: true, logoutUrl: '' })
     const anon = await request(port, '/api/auth/me')
     expect(anon.status).toBe(401)
   })
@@ -227,8 +227,30 @@ describe('dsh-login with an external identity center (localAuth: false)', () => 
     expect(out.headers.get('location')).toBe('/')
   })
 
-  it('still stores a session for an externally authenticated identity', { timeout: 60_000 }, async () => {
-    const { ctx, port } = await loadComposition(external)
+  // 退出跳哪，由服务端配置决定（logoutUrl）。
+  //
+  // 为什么值得钉住：带身份中心时，真正管用的会话在 base 域上，只有 base 能清。
+  // 我们自己只清本进程的 cookie，若退出后仍跳 '/' → 网关又走一遍 SSO → base 会话还在
+  // → 人又被静默登回来（现象：点退出、刷新，又进去了）。配置成 base 的登出口后，
+  // 一次导航就能落在登录页；同时 /api/auth/me 要把这个地址下发给前端按钮。
+  it('honours logoutUrl for the logout redirect and for /api/auth/me', { timeout: 60_000 }, async () => {
+    const target = 'https://base.example.com/sso/logout?return=%2F'
+    const { ctx, port } = await loadComposition([...external, `    logoutUrl: '${target}'`])
+
+    // ① 链接式退出（<a href="/logout">）→ 直接 302 到配置的地址
+    const out = await request(port, '/logout')
+    expect(out.status).toBe(302)
+    expect(out.headers.get('location')).toBe(target)
+
+    // ② 前端"退出"按钮的目标同样来自服务端
+    const seam = (ctx as unknown as { get(name: string): { createSession(user: string, isAdmin: boolean, identity?: unknown): { token: string; cookie: string } } }).get('dshLogin')
+    const session = seam.createSession('alice@example.com', false, { id: 'base-uuid-2', email: 'alice@example.com', name: '爱丽丝', roles: [] })
+    const me = await request(port, '/api/auth/me', { headers: { Cookie: `dsh_session=${session.token}` } })
+    expect(me.status).toBe(200)
+    expect((JSON.parse(me.body) as { logoutUrl?: string }).logoutUrl).toBe(target)
+  })
+
+  it('still stores a session for an externally authenticated identity', { timeout: 60_000 }, async () => {    const { ctx, port } = await loadComposition(external)
     const seam = (ctx as unknown as { get(name: string): { createSession(user: string, isAdmin: boolean, identity?: unknown): { token: string; cookie: string } } }).get('dshLogin')
     const session = seam.createSession('alice@example.com', false, {
       id: 'base-uuid-1',
@@ -253,6 +275,7 @@ describe('dsh-login with an external identity center (localAuth: false)', () => 
       roles: [{ name: 'admin', app: 'dsh' }, { name: '采购部', app: 'global' }],
       isAdmin: false,
       localAuth: false,
+      logoutUrl: '',
     })
 
     // Capability discovery stays (it is identity, not local accounts).
@@ -263,7 +286,7 @@ describe('dsh-login with an external identity center (localAuth: false)', () => 
     const legacy = seam.createSession('bob@example.com', false)
     const legacyMe = await request(port, '/api/auth/me', { headers: { Cookie: `dsh_session=${legacy.token}` } })
     expect(JSON.parse(legacyMe.body)).toEqual({
-      userId: 'bob@example.com', username: 'bob@example.com', email: '', name: '', roles: [], isAdmin: false, localAuth: false,
+      userId: 'bob@example.com', username: 'bob@example.com', email: '', name: '', roles: [], isAdmin: false, localAuth: false, logoutUrl: '',
     })
   })
 })

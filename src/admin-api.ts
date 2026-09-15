@@ -39,6 +39,11 @@ export interface AdminDeps {
    * are not registered — see `createAdminRoutes`.
    */
   localAuth?: boolean
+  /**
+   * Send this to the client in `/api/auth/me`; the client navigates here after
+   * logging out. Empty string keeps the legacy behaviour (see config.ts).
+   */
+  logoutUrl?: string
 }
 
 /** Resolve the live session from the request cookie, if any. */
@@ -93,6 +98,8 @@ export function createAdminRoutes(deps: AdminDeps): WebRoute[] {
       roles: session.identity?.roles ?? [],
       isAdmin: session.isAdmin,
       localAuth: deps.localAuth !== false,
+      /** Where the client should navigate after logging out ('' = legacy behaviour). */
+      logoutUrl: deps.logoutUrl ?? '',
     })
   } }
 

@@ -262,11 +262,27 @@ function (require) {
     }
   }
 
+  /**
+   * Where to go after logging out.
+   *
+   * `me.logoutUrl` is what the server was configured with (an identity
+   * center's logout endpoint) and wins; otherwise keep the legacy targets —
+   * `/login` for a local-auth deployment, `/` for an external identity center.
+   */
+  function logoutTarget(me) {
+    if (me && typeof me.logoutUrl === 'string' && me.logoutUrl !== '') return me.logoutUrl
+    return me && me.localAuth === false ? '/' : '/login'
+  }
+
   function logout(target) {
     void fetch('/api/auth/logout', { method: 'POST' }).catch(function () {}).finally(function () {
-      // With an identity center there is no local login page: '/' re-enters
-      // the gateway, which then sends the (now logged-out) visitor to the
-      // provider. Only a localAuth deployment has /login to land on.
+      // One navigation, and it should end on a login page.
+      //
+      // With an identity center, the session that matters lives on the
+      // provider's domain, so bouncing to '/' only re-enters the gateway and
+      // the provider logs the person straight back in. The server therefore
+      // tells us where to go (`logoutUrl` = the provider's logout endpoint);
+      // only when it is not configured do we fall back to the old targets.
       window.location.assign(target)
     })
   }
@@ -289,7 +305,7 @@ function (require) {
       h('div', { className: 'dshlu-account-id' },
         h('span', { className: 'dshlu-account-name' }, me.username),
         h('span', { className: 'dshlu-account-role' }, t(me.isAdmin ? 'role.admin' : 'role.user'))),
-      h(Button, { variant: 'outline', size: 'sm', onClick: function () { logout(me.localAuth === false ? '/' : '/login') } }, t('account.logout')))
+      h(Button, { variant: 'outline', size: 'sm', onClick: function () { logout(logoutTarget(me)) } }, t('account.logout')))
   }
 
   /** Ordinary-user section: identity + logout. */

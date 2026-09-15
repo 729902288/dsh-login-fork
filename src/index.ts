@@ -166,14 +166,16 @@ export function apply(ctx: Context, config: Config): void {
   }), 'dsh-login: /api/auth/logout')
   // Link-friendly logout: same revocation, but answers with a redirect so
   // plain <a href="/logout"> entries (e.g. the admin page topbar) work.
-  // Target: the local login page when it exists, otherwise the gateway root
-  // (which bounces an unauthenticated request to the identity center).
+  // Target: `logoutUrl` when configured (an identity center's logout endpoint,
+  // which also kills the provider-side session), else the local login page when
+  // it exists, else the gateway root (which bounces an unauthenticated request
+  // to the identity center).
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
     path: '/logout',
-    handler: createLogoutRedirectHandler(store, config.localAuth ? '/login' : '/'),
+    handler: createLogoutRedirectHandler(store, config.logoutUrl || (config.localAuth ? '/login' : '/')),
   }), 'dsh-login: /logout')
-  for (const route of createAdminRoutes({ users, store, hosts, defaultWorkspaceSetting, remoteWebUiSetting, remoteWebUiCompat, localAuth: config.localAuth, onRemoteWebUiApply: (enabled) => applyWithRetry(remoteWebUiCompat, enabled, config.remoteWebUiPublicBaseUrl, 3, 50) })) {
+  for (const route of createAdminRoutes({ users, store, hosts, defaultWorkspaceSetting, remoteWebUiSetting, remoteWebUiCompat, localAuth: config.localAuth, logoutUrl: config.logoutUrl, onRemoteWebUiApply: (enabled) => applyWithRetry(remoteWebUiCompat, enabled, config.remoteWebUiPublicBaseUrl, 3, 50) })) {
     ctx.effect(() => ctx.webServer.register(route), `dsh-login: ${route.path}`)
   }
   // Boot-time application of the remote-web-ui compatibility toggle. Deferred
