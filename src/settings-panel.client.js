@@ -275,16 +275,14 @@ function (require) {
   }
 
   function logout(target) {
-    void fetch('/api/auth/logout', { method: 'POST' }).catch(function () {}).finally(function () {
-      // One navigation, and it should end on a login page.
-      //
-      // With an identity center, the session that matters lives on the
-      // provider's domain, so bouncing to '/' only re-enters the gateway and
-      // the provider logs the person straight back in. The server therefore
-      // tells us where to go (`logoutUrl` = the provider's logout endpoint);
-      // only when it is not configured do we fall back to the old targets.
-      window.location.assign(target)
-    })
+    // 点了就跳，不等请求。
+    //
+    // 目标地址（服务端下发的 logoutUrl）在**前门**上；那一次导航本身就会把账清干净
+    // （清前门会话、替容器登出、送身份中心登出）。这里再补一个后台请求，是为了从容器
+    // 的角度看"会话确实被吊销了"；用 keepalive 让它即使在导航之后也能发出去。
+    // 老写法是 fetch().finally(() => location.assign(...)) —— 要等请求回来才跳，会卡一下。
+    void fetch('/api/auth/logout', { method: 'POST', keepalive: true }).catch(function () {})
+    window.location.assign(target)
   }
 
   function fmtDate(ms) {
