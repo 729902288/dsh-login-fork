@@ -49,16 +49,29 @@ function readIdentity(raw) {
   return identity;
 }
 var SessionStore = class {
-  constructor(ttlSeconds, filePath) {
+  constructor(ttlSeconds, filePath, onRevoke) {
     this.ttlSeconds = ttlSeconds;
     this.filePath = filePath;
+    this.onRevoke = onRevoke;
     if (filePath !== void 0) this.load();
   }
   ttlSeconds;
   filePath;
+  onRevoke;
   store = /* @__PURE__ */ new Map();
   saveTimer;
   saving = Promise.resolve();
+  /**
+   * Drop one token and tell whoever cares. Every removal path funnels through
+   * here so an out-of-process identity holder (a plugin keeping a longer-lived
+   * credential per session) hears about it no matter which route revoked it:
+   * logout, admin removal, password change, expiry sweep.
+   */
+  drop(token) {
+    const removed = this.store.delete(token);
+    if (removed) this.onRevoke?.(token);
+    return removed;
+  }
   /** Generate a 32-byte random token for `user` with its admin flag. */
   create(user, isAdmin, identity) {
     const token = randomBytes(32).toString("hex");
@@ -75,7 +88,7 @@ var SessionStore = class {
     const session = this.store.get(token);
     if (session === void 0) return void 0;
     if (Date.now() > session.expiresAt) {
-      this.store.delete(token);
+      this.drop(token);
       this.scheduleSave();
       return void 0;
     }
@@ -83,7 +96,7 @@ var SessionStore = class {
   }
   /** Remove a session. Revoking an unknown token is a no-op. */
   revoke(token) {
-    if (this.store.delete(token)) this.scheduleSave();
+    if (this.drop(token)) this.scheduleSave();
   }
   /**
    * Revoke every live session belonging to `user` (user removal or password
@@ -93,7 +106,7 @@ var SessionStore = class {
     let removed = 0;
     for (const [token, session] of this.store) {
       if (session.user === user) {
-        this.store.delete(token);
+        this.drop(token);
         removed++;
       }
     }
@@ -110,7 +123,7 @@ var SessionStore = class {
     let swept = false;
     for (const [token, session] of this.store) {
       if (now > session.expiresAt) {
-        this.store.delete(token);
+        this.drop(token);
         swept = true;
         continue;
       }
@@ -125,7 +138,7 @@ var SessionStore = class {
     let swept = false;
     for (const [token, session] of this.store) {
       if (now > session.expiresAt) {
-        this.store.delete(token);
+        this.drop(token);
         swept = true;
       }
     }
@@ -1435,7 +1448,13 @@ var inject = ["webServer", "credentials"];
 function apply(ctx, config) {
   if (!config.enabled) return;
   const dataDir = config.dataDir === "" ? join2(resolveDshHome(), ".dsh-login") : config.dataDir;
-  const store = new SessionStore(config.sessionTtl, join2(dataDir, "sessions.json"));
+  const store = new SessionStore(
+    config.sessionTtl,
+    join2(dataDir, "sessions.json"),
+    (token) => {
+      ctx.emit("dsh-login/session-revoked", { token });
+    }
+  );
   const users = new UserStore(ctx.credentials, credentialRef(`${config.password}_USERS`));
   const ownership = new OwnershipIndex(join2(dataDir, "ownership.json"));
   const hosts = new TrustedHosts(join2(dataDir, "trusted-hosts.json"));

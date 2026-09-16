@@ -84,8 +84,21 @@ export class SessionStore {
   constructor(
     private readonly ttlSeconds: number,
     private readonly filePath?: string,
+    private readonly onRevoke?: (token: string) => void,
   ) {
     if (filePath !== undefined) this.load()
+  }
+
+  /**
+   * Drop one token and tell whoever cares. Every removal path funnels through
+   * here so an out-of-process identity holder (a plugin keeping a longer-lived
+   * credential per session) hears about it no matter which route revoked it:
+   * logout, admin removal, password change, expiry sweep.
+   */
+  private drop(token: string): boolean {
+    const removed = this.store.delete(token)
+    if (removed) this.onRevoke?.(token)
+    return removed
   }
 
   /** Generate a 32-byte random token for `user` with its admin flag. */
@@ -105,7 +118,7 @@ export class SessionStore {
     const session = this.store.get(token)
     if (session === undefined) return undefined
     if (Date.now() > session.expiresAt) {
-      this.store.delete(token)
+      this.drop(token)
       this.scheduleSave()
       return undefined
     }
@@ -114,7 +127,7 @@ export class SessionStore {
 
   /** Remove a session. Revoking an unknown token is a no-op. */
   revoke(token: string): void {
-    if (this.store.delete(token)) this.scheduleSave()
+    if (this.drop(token)) this.scheduleSave()
   }
 
   /**
@@ -125,7 +138,7 @@ export class SessionStore {
     let removed = 0
     for (const [token, session] of this.store) {
       if (session.user === user) {
-        this.store.delete(token)
+        this.drop(token)
         removed++
       }
     }
@@ -143,7 +156,7 @@ export class SessionStore {
     let swept = false
     for (const [token, session] of this.store) {
       if (now > session.expiresAt) {
-        this.store.delete(token)
+        this.drop(token)
         swept = true
         continue
       }
@@ -159,7 +172,7 @@ export class SessionStore {
     let swept = false
     for (const [token, session] of this.store) {
       if (now > session.expiresAt) {
-        this.store.delete(token)
+        this.drop(token)
         swept = true
       }
     }

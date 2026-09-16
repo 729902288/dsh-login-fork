@@ -69,7 +69,14 @@ export function apply(ctx: Context, config: Config): void {
   // open SPA's /api calls are not suddenly 401'd — the in-memory-only store
   // invalidated every cookie on reload). Tokens live in <dataDir>/sessions.json
   // (0o600). Session TTL still applies on load, so stale records are dropped.
-  const store = new SessionStore(config.sessionTtl, join(dataDir, 'sessions.json'))
+  // Every session removal announces itself so an external identity holder can
+  // drop whatever it kept for that session. Without this the logout path only
+  // forgets the cookie while a plugin's stored credential lives on.
+  const store = new SessionStore(
+    config.sessionTtl,
+    join(dataDir, 'sessions.json'),
+    (token) => { ctx.emit('dsh-login/session-revoked', { token }) },
+  )
   const users = new UserStore(ctx.credentials, credentialRef(`${config.password}_USERS`))
   const ownership = new OwnershipIndex(join(dataDir, 'ownership.json'))
   const hosts = new TrustedHosts(join(dataDir, 'trusted-hosts.json'))
