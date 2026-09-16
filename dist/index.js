@@ -1545,4 +1545,3 @@ export {
   name,
   wrapRemoteGateway
 };
-//# sourceMappingURL=index.js.map

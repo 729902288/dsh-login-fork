@@ -32,7 +32,9 @@ for (const [entry, output] of entries) {
     platform: 'node',
     format: 'esm',
     target: 'node22',
-    sourcemap: true,
+    // 不生成 sourcemap：产物要随镜像到客户机器上，而带 sourcesContent 的 map
+    // 等于把完整源码一起发出去。
+    sourcemap: false,
     legalComments: 'none',
     logLevel: 'info',
   })
