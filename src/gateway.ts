@@ -119,7 +119,17 @@ export function createGatewayHandler(
       res,
       distRoot,
       config.distIndex,
-      () => authorizeIndex(req, res),
+      // 认证这步可能已经把响应写掉了（401/303）。写过了就绝不能再往下走：
+      // serveStatic 在取不到文件时会再 writeHead 一次，头已发就会抛错，
+      // 请求随之被中断，浏览器只看到空白页。
+      () => {
+        if (authorizeIndex(req, res)) return true
+        if (!res.headersSent) {
+          res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
+          res.end('未登录：请重新打开 dsh 打印的地址。')
+        }
+        return false
+      },
       renderIndex,
     )
   }
